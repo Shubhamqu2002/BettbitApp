@@ -1,5 +1,5 @@
 // lib/services/register_services.dart
-import 'dart:async'; // ✅ for unawaited()
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -11,7 +11,6 @@ import '../util/crypto_utils.dart';
 import '../util/token_manager.dart';
 
 class RegisterService {
-  // ✅ Base URLs from .env (runtime safe)
   static final String _baseUrl =
       dotenv.env['AUTH_BASE_URL'] ??
       (throw Exception('AUTH_BASE_URL not found in .env'));
@@ -24,10 +23,11 @@ class RegisterService {
       dotenv.env['MASCOT_BASE_URL'] ??
       (throw Exception('MASCOT_BASE_URL not found in .env'));
 
-  // ✅ REPLACED: ipapi.co -> ipwho.is
   static const String _geoUrl = 'https://ipwho.is/';
 
-  // ✅ Hardcoded constants
+  // ✅ cache geo (avoid repeated calls)
+  static Map<String, dynamic>? _geoCache;
+
   static const String _mascotBankGroupId = "PU4012_Nexxorra_INR";
   static const int _mascotRpcId = 1928822491;
   static const String _torrospinBirthdateHardcoded = "1990-01-01";
@@ -37,78 +37,102 @@ class RegisterService {
     return "${body.substring(0, limit)}...";
   }
 
-  /// ✅ Fetch IP-based geo info (country code, country, currency)
-  /// Uses ipwho.is (no aggressive rate limiting like ipapi.co)
-  ///
-  /// Returns a NORMALIZED map:
-  /// {
-  ///   "country_code": "IN",
-  ///   "country": "India",
-  ///   "currency": "INR"
-  /// }
-  Future<Map<String, dynamic>> fetchGeoInfo() async {
-    final uri = Uri.parse(_geoUrl);
+  /// Normalize calling code: "880" -> "+880"
+  String _normalizeCallingCode(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return "+91";
+    return v.startsWith("+") ? v : "+$v";
+  }
 
-    debugPrint('🌍 [GEO] Using ipwho.is endpoint: $uri');
+  /// Normalize phone → +<cc><last10digits>
+  /// (keeps your current backend expectation)
+  String normalizePhoneWithCallingCode(String input, String callingCode) {
+    var v = input.trim().replaceAll(' ', '').replaceAll('-', '');
+
+    if (v.startsWith('+')) v = v.substring(1);
+    v = v.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (v.length > 10) v = v.substring(v.length - 10);
+
+    final cc = _normalizeCallingCode(callingCode);
+    final normalized = "$cc$v";
+
+    debugPrint("📞 [REGISTER][PHONE] Normalized => $normalized");
+    return normalized;
+  }
+
+  /// ✅ Fetch geo info (country_code, country, currency, calling_code)
+  /// Returns:
+  /// {
+  ///   "country_code":"IN",
+  ///   "country":"India",
+  ///   "currency":"INR",
+  ///   "calling_code":"+91"
+  /// }
+  Future<Map<String, dynamic>> fetchGeoInfo({bool forceRefresh = false}) async {
+    if (!forceRefresh && _geoCache != null) {
+      debugPrint("🌍 [GEO] Using cached geo => $_geoCache");
+      return _geoCache!;
+    }
+
+    final uri = Uri.parse(_geoUrl);
+    debugPrint('🌍 [GEO] Fetching from: $uri');
 
     final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
     debugPrint(
-      '📡 [GEO] status=${response.statusCode} body=${_shortBody(response.body, limit: 300)}',
+      '📡 [GEO] status=${response.statusCode} body=${_shortBody(response.body, limit: 250)}',
     );
 
     if (response.statusCode != 200) {
       throw Exception(
-        'GEO failed (${response.statusCode}): ${_shortBody(response.body, limit: 250)}',
+        'GEO failed (${response.statusCode}): ${_shortBody(response.body, limit: 200)}',
       );
     }
 
     final raw = jsonDecode(response.body);
-
     if (raw is! Map<String, dynamic>) {
       throw Exception('GEO invalid json shape from ipwho.is');
     }
 
-    final success = raw['success'];
-    if (success == false) {
-      // ipwho.is sends {"success":false,"message":"..."}
+    if (raw['success'] == false) {
       throw Exception('GEO ipwho.is failed: ${raw['message'] ?? 'Unknown error'}');
     }
 
-    // ipwho.is fields:
-    // country_code: "IN"
-    // country: "India"
-    // currency: {"code":"INR", ...} OR sometimes string depending on proxy response
     final countryCode = (raw['country_code'] ?? '').toString().trim();
     final country = (raw['country'] ?? '').toString().trim();
 
     String currencyCode = '';
     final currencyRaw = raw['currency'];
-
     if (currencyRaw is Map) {
       currencyCode = (currencyRaw['code'] ?? '').toString().trim();
     } else if (currencyRaw is String) {
       currencyCode = currencyRaw.trim();
     }
 
-    // ✅ Fallbacks (safe)
+    final callingRaw = (raw['calling_code'] ?? '').toString();
+    final callingCode = _normalizeCallingCode(callingRaw);
+
     final normalized = <String, dynamic>{
       'country_code': countryCode.isNotEmpty ? countryCode : 'IN',
       'country': country.isNotEmpty ? country : 'India',
       'currency': currencyCode.isNotEmpty ? currencyCode : 'INR',
+      'calling_code': callingCode,
     };
 
+    _geoCache = normalized;
+
     debugPrint(
-      '✅ [GEO] Normalized => country_code=${normalized['country_code']} | country=${normalized['country']} | currency=${normalized['currency']}',
+      '✅ [GEO] Normalized => country_code=${normalized['country_code']} | country=${normalized['country']} | calling_code=${normalized['calling_code']} | currency=${normalized['currency']}',
     );
 
     return normalized;
   }
 
-  /// Register gamer API
+  /// ✅ Main register API
   Future<Map<String, dynamic>> registerGamer({
     required String email,
-    required String number,
+    required String number, // can be "" (optional flow)
     required String password,
     required String firstName,
     required String lastName,
@@ -116,26 +140,35 @@ class RegisterService {
     required String gender,
     required String countryCode,
     required String country,
+    required String registrationType, // ✅ EMAIL / PHONE
+    required String callingCode, // ✅ +91/+880
     String middleName = '',
     String platformCode = 'PU4012',
   }) async {
-    // 1️⃣ Get valid token
     final token = await TokenManager().getValidToken();
-
     if (token == null || token.isEmpty) {
       throw Exception('Unable to generate authorization token');
     }
 
-    // 2️⃣ Encrypt sensitive fields
+    // ✅ Encrypt fields
     final encryptedEmail = encryptText(email);
-    final encryptedNumber = encryptText(number);
+
+    // ✅ If number empty, send empty encryptedNumber (keeps API shape)
+    final normalizedNumber = number.trim().isEmpty
+        ? ""
+        : normalizePhoneWithCallingCode(number, callingCode);
+
+    final encryptedNumber =
+        normalizedNumber.isEmpty ? "" : encryptText(normalizedNumber);
+
     final encryptedPassword = encryptText(password);
 
     debugPrint('🔐 [REGISTER] Encrypted email: $encryptedEmail');
+    debugPrint('🔐 [REGISTER] Normalized number: $normalizedNumber');
     debugPrint('🔐 [REGISTER] Encrypted number: $encryptedNumber');
     debugPrint('🔐 [REGISTER] Encrypted password: $encryptedPassword');
+    debugPrint('🏷️ [REGISTER] registrationType: $registrationType');
 
-    // 3️⃣ Prepare request
     final url = Uri.parse('$_baseUrl/api/gamer/register');
 
     final body = {
@@ -150,9 +183,12 @@ class RegisterService {
       "dob": dob,
       "gender": gender,
       "country": country,
+
+      // ✅ NEW
+      "registrationType": registrationType, // EMAIL / PHONE
     };
 
-    debugPrint('➡️ [REGISTER] Hitting: $url');
+    debugPrint('➡️ [REGISTER] URL: $url');
     debugPrint('📤 [REGISTER] Payload: ${jsonEncode(body)}');
 
     final response = await http.post(
@@ -180,35 +216,23 @@ class RegisterService {
       throw Exception('Registration failed: ${data['status']}');
     }
 
-    // 4️⃣ Save username
     final prefs = await SharedPreferences.getInstance();
     final userName = (data['userName'] ?? '').toString();
-
     await prefs.setString('user_name', userName);
+
     debugPrint('💾 [REGISTER] Saved user_name: $userName');
 
-    // 5️⃣ Fire & Forget extra APIs
     if (userName.isNotEmpty) {
-      debugPrint(
-        '🚀 [POST-REGISTER] Triggering Mascot & Torrospin APIs (fire-and-forget)',
-      );
-
       unawaited(_hitMascotPlayerSet(userName));
       unawaited(_hitTorrospinAddUser(userName));
-    } else {
-      debugPrint(
-        '⚠️ [POST-REGISTER] userName missing, skipping extra API calls',
-      );
     }
 
     return data;
   }
 
-  /// (1) Mascot JSON-RPC → Player.Set
   Future<void> _hitMascotPlayerSet(String userName) async {
     try {
       final url = Uri.parse("$_mascotBaseUrl/");
-
       final payload = {
         "jsonrpc": "2.0",
         "method": "Player.Set",
@@ -221,28 +245,20 @@ class RegisterService {
       };
 
       debugPrint('➡️ [MASCOT] URL: $url');
-      debugPrint('📤 [MASCOT] Payload: ${jsonEncode(payload)}');
-
       final res = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-
-      debugPrint(
-        '⬅️ [MASCOT] status=${res.statusCode} body=${_shortBody(res.body)}',
-      );
-    } catch (e, st) {
+      debugPrint('⬅️ [MASCOT] status=${res.statusCode} body=${_shortBody(res.body)}');
+    } catch (e) {
       debugPrint('❌ [MASCOT] Error: $e');
-      debugPrint('🧾 [MASCOT] Stack: $st');
     }
   }
 
-  /// (2) Torrospin → add user
   Future<void> _hitTorrospinAddUser(String userName) async {
     try {
       final url = Uri.parse("$_walletBaseUrl/torrospin/adduser");
-
       final payload = {
         "casinoUserId": userName,
         "username": userName,
@@ -250,20 +266,14 @@ class RegisterService {
       };
 
       debugPrint('➡️ [TORROSPIN] URL: $url');
-      debugPrint('📤 [TORROSPIN] Payload: ${jsonEncode(payload)}');
-
       final res = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-
-      debugPrint(
-        '⬅️ [TORROSPIN] status=${res.statusCode} body=${_shortBody(res.body)}',
-      );
-    } catch (e, st) {
+      debugPrint('⬅️ [TORROSPIN] status=${res.statusCode} body=${_shortBody(res.body)}');
+    } catch (e) {
       debugPrint('❌ [TORROSPIN] Error: $e');
-      debugPrint('🧾 [TORROSPIN] Stack: $st');
     }
   }
 }

@@ -7,90 +7,133 @@ import '../util/crypto_utils.dart';
 
 class OtpService {
   static const String _root = "https://communications.nexxorra.com";
-  static const String _geoUrl = "https://ipapi.co/json/";
+  static const String _geoUrl = "https://ipwho.is/";
 
-  // Cache calling code so we don't hit geo API repeatedly
-  static String? _cachedCallingCode;
+  // Cached values (avoid repeated geo calls)
+  static String? _cachedCallingCode; // +880
+  static String? _cachedCountryCode; // BD
 
-  /// Get dynamic calling code based on device public IP location.
-  /// Fallback: "+91"
-  Future<String> getCallingCode() async {
-    if (_cachedCallingCode != null && _cachedCallingCode!.trim().isNotEmpty) {
-      return _cachedCallingCode!;
+  /* -------------------------------------------------------
+   * GEO DETECTION (ipwho.is)
+   * ----------------------------------------------------- */
+
+  Future<void> _detectGeoOnce() async {
+    if (_cachedCallingCode != null && _cachedCountryCode != null) {
+      debugPrint("🌍 [GEO] Using cached values → "
+          "country=$_cachedCountryCode, calling=$_cachedCallingCode");
+      return;
     }
+
+    debugPrint("🌍 [GEO] Fetching geo info from ipwho.is...");
 
     try {
       final res = await http
           .get(Uri.parse(_geoUrl), headers: {"accept": "application/json"})
           .timeout(const Duration(seconds: 8));
 
+      debugPrint("🌍 [GEO] HTTP ${res.statusCode}");
+
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body);
 
-        // ipapi.co usually returns: "country_calling_code": "+91"
-        final code = (data is Map && data["country_calling_code"] != null)
-            ? data["country_calling_code"].toString().trim()
-            : "";
+        if (data is Map && data["success"] == true) {
+          final countryCode =
+              (data["country_code"] ?? "").toString().trim();
+          final callingCodeRaw =
+              (data["calling_code"] ?? "").toString().trim();
 
-        if (code.isNotEmpty && code.startsWith("+")) {
-          _cachedCallingCode = code;
-          debugPrint("🌍 Detected calling code: $_cachedCallingCode");
-          return _cachedCallingCode!;
+          if (countryCode.isNotEmpty && callingCodeRaw.isNotEmpty) {
+            _cachedCountryCode = countryCode;
+            _cachedCallingCode = "+$callingCodeRaw";
+
+            debugPrint(
+              "✅ [GEO] Detected → "
+              "country=$_cachedCountryCode | "
+              "calling=$_cachedCallingCode",
+            );
+            return;
+          }
         }
+
+        debugPrint("⚠️ [GEO] Invalid response body: ${res.body}");
       }
     } catch (e) {
-      debugPrint("⚠️ Calling code detection failed: $e");
+      debugPrint("❌ [GEO] Detection failed: $e");
     }
 
+    // fallback (only if API fails)
+    _cachedCountryCode = "IN";
     _cachedCallingCode = "+91";
-    debugPrint("🌍 Fallback calling code: $_cachedCallingCode");
+    debugPrint(
+      "⚠️ [GEO] Fallback used → "
+      "country=$_cachedCountryCode | calling=$_cachedCallingCode",
+    );
+  }
+
+  /// Public getter for calling code (+880, +91, etc.)
+  Future<String> getCallingCode() async {
+    await _detectGeoOnce();
     return _cachedCallingCode!;
   }
 
-  /// Normalize number into +<callingCode><digits>
-  /// Rules:
-  /// - Input can be 10 digits, 91+10 digits, +91+10 digits, etc.
-  /// - We keep LAST 10 digits as national number (India-style),
-  ///   because your examples are Indian numbers. If you want fully global,
-  ///   tell me and I’ll adjust to per-country length.
+  /// Public getter for country code (BD, IN, etc.)
+  Future<String> getCountryCode() async {
+    await _detectGeoOnce();
+    return _cachedCountryCode!;
+  }
+
+  /* -------------------------------------------------------
+   * PHONE NORMALIZATION
+   * ----------------------------------------------------- */
+
+  /// Normalize number → +<callingCode><last 10 digits>
+  /// Example:
+  /// input: 01712345678
+  /// output: +8801712345678
   String normalizePhoneWithCode(String input, String callingCode) {
     var v = input.trim().replaceAll(' ', '').replaceAll('-', '');
 
-    // remove leading "+"
+    // remove "+"
     if (v.startsWith('+')) v = v.substring(1);
 
-    // keep digits only
+    // digits only
     v = v.replaceAll(RegExp(r'[^0-9]'), '');
 
-    // Keep last 10 digits (works for your current flow)
+    // keep last 10 digits (your current backend expectation)
     if (v.length > 10) {
       v = v.substring(v.length - 10);
     }
 
-    // Ensure callingCode starts with +
     final cc = callingCode.startsWith("+") ? callingCode : "+$callingCode";
 
-    return "$cc$v";
+    final normalized = "$cc$v";
+    debugPrint("📞 [PHONE] Normalized → $normalized");
+
+    return normalized;
   }
 
-  /// Build encrypted user_identifier = encryptText("+<cc><number>")
+  /* -------------------------------------------------------
+   * ENCRYPTED IDENTIFIER
+   * ----------------------------------------------------- */
+
   Future<String> buildEncryptedUserIdentifier(String mobileNumber) async {
     final cc = await getCallingCode();
     final normalized = normalizePhoneWithCode(mobileNumber, cc);
 
-    debugPrint("📞 Normalized phone (for user_identifier): $normalized");
+    final encrypted = encryptText(normalized);
 
-    final encryptedMobile = encryptText(normalized);
-    debugPrint("🔐 Encrypted user_identifier: $encryptedMobile");
+    debugPrint("🔐 [OTP] Encrypted user_identifier → $encrypted");
 
-    return encryptedMobile;
+    return encrypted;
   }
 
-  /// Send OTP to WhatsApp
-  /// ✅ all hardcoded except "user_identifier"
-  /// ✅ NO "country_calling_code" param in payload
+  /* -------------------------------------------------------
+   * SEND OTP
+   * ----------------------------------------------------- */
+
   Future<void> sendLoginOtp({required String mobileNumber}) async {
-    final encryptedIdentifier = await buildEncryptedUserIdentifier(mobileNumber);
+    final encryptedIdentifier =
+        await buildEncryptedUserIdentifier(mobileNumber);
 
     final url = Uri.parse("$_root/webhook/otp");
 
@@ -104,7 +147,7 @@ class OtpService {
       "channel": "WHATSAPP",
     };
 
-    debugPrint("📦 Send OTP payload: $payload");
+    debugPrint("📦 [SEND OTP] Payload → $payload");
 
     final res = await http.post(
       url,
@@ -112,21 +155,27 @@ class OtpService {
       body: jsonEncode(payload),
     );
 
-    debugPrint("📡 Send OTP response: ${res.statusCode} -> ${res.body}");
+    debugPrint(
+      "📡 [SEND OTP] Response → ${res.statusCode} | ${res.body}",
+    );
 
     if (res.statusCode != 200) {
-      throw Exception("OTP send failed (${res.statusCode}): ${res.body}");
+      throw Exception(
+        "OTP send failed (${res.statusCode}): ${res.body}",
+      );
     }
   }
 
-  /// Verify OTP
-  /// ✅ hardcoded except "user_identifier" and "otp"
-  /// ✅ NO "country_calling_code" param in payload
+  /* -------------------------------------------------------
+   * VERIFY OTP
+   * ----------------------------------------------------- */
+
   Future<void> verifyLoginOtp({
     required String mobileNumber,
     required String otp,
   }) async {
-    final encryptedIdentifier = await buildEncryptedUserIdentifier(mobileNumber);
+    final encryptedIdentifier =
+        await buildEncryptedUserIdentifier(mobileNumber);
 
     final url = Uri.parse("$_root/webhook/verify-otp");
 
@@ -137,7 +186,7 @@ class OtpService {
       "source": "LOGIN",
     };
 
-    debugPrint("📦 Verify OTP payload: $payload");
+    debugPrint("📦 [VERIFY OTP] Payload → $payload");
 
     final res = await http.post(
       url,
@@ -145,10 +194,14 @@ class OtpService {
       body: jsonEncode(payload),
     );
 
-    debugPrint("📡 Verify OTP response: ${res.statusCode} -> ${res.body}");
+    debugPrint(
+      "📡 [VERIFY OTP] Response → ${res.statusCode} | ${res.body}",
+    );
 
     if (res.statusCode != 200) {
-      throw Exception("OTP verify failed (${res.statusCode}): ${res.body}");
+      throw Exception(
+        "OTP verify failed (${res.statusCode}): ${res.body}",
+      );
     }
   }
 }

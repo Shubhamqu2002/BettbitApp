@@ -3,8 +3,12 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../components/gradient_background.dart';
+import '../services/update/update_service.dart';
+import 'update_page.dart';
 import 'login_page.dart';
 import 'home_page.dart';
 
@@ -17,23 +21,24 @@ class SplashPage extends StatefulWidget {
   State<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage>
-    with TickerProviderStateMixin {
+class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _rotateController;
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late AnimationController _glowController;
   late AnimationController _particleController;
-  
+
   late Animation<double> _pulseAnimation;
   late Animation<double> _rotateAnimation;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<double> _glowAnimation;
 
-
   final List<Particle> _particles = [];
+
+  String _versionText = 'Version 1.0.0';
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -41,6 +46,9 @@ class _SplashPageState extends State<SplashPage>
 
     // Generate particles
     _generateParticles();
+
+    // ✅ Load real app version/build for UI (bottom text)
+    _loadAppVersion();
 
     // Pulse animation for outer glow
     _pulseController = AnimationController(
@@ -105,8 +113,8 @@ class _SplashPageState extends State<SplashPage>
     _fadeController.forward();
     _scaleController.forward();
 
-    // After 2.5 seconds decide where to go
-    Timer(const Duration(milliseconds: 2500), _decideNavigation);
+    // ✅ After 2.5 seconds decide where to go (NOW includes update check)
+    Timer(const Duration(milliseconds: 2500), _decideNavigationWithUpdateGate);
   }
 
   void _generateParticles() {
@@ -124,16 +132,66 @@ class _SplashPageState extends State<SplashPage>
     }
   }
 
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _versionText = 'Version ${info.version} (${info.buildNumber})';
+      });
+    } catch (_) {
+      // keep default
+    }
+  }
+
+  /// ✅ Update check happens here BEFORE deciding Home/Login
+  Future<void> _decideNavigationWithUpdateGate() async {
+    if (!mounted || _navigated) return;
+
+    // Read current app version/build
+    final pkg = await PackageInfo.fromPlatform();
+    final currentBuild = int.tryParse(pkg.buildNumber) ?? 0;
+    final currentVersion = pkg.version;
+
+    // Call the provided API
+    final detailsUrl = dotenv.env['APK_VERSION_DETAILS_URL'] ??
+        'https://api.nexxorra.com/file/apk/version/details';
+
+    final service = UpdateService(detailsUrl: detailsUrl);
+    final result = await service.checkForUpdate();
+
+    if (!mounted || _navigated) return;
+
+    // If update required -> go UpdatePage (blocks login)
+    if (result.needsUpdate && result.info != null) {
+      _navigated = true;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UpdatePage(
+            info: result.info!,
+            currentBuild: currentBuild,
+            currentVersion: currentVersion,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Otherwise -> normal flow
+    await _decideNavigation();
+  }
+
   Future<void> _decideNavigation() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
     final gamerId = prefs.getString('gamer_id') ?? '';
 
-    final targetRoute = (isLoggedIn && gamerId.isNotEmpty)
-        ? HomePage.routeName
-        : LoginPage.routeName;
+    final targetRoute =
+        (isLoggedIn && gamerId.isNotEmpty) ? HomePage.routeName : LoginPage.routeName;
 
-    if (!mounted) return;
+    if (!mounted || _navigated) return;
+    _navigated = true;
     Navigator.pushReplacementNamed(context, targetRoute);
   }
 
@@ -321,10 +379,8 @@ class _SplashPageState extends State<SplashPage>
                           // App title with gradient and glow
                           Stack(
                             children: [
-                              // Glow effect
                               ShaderMask(
-                                shaderCallback: (bounds) =>
-                                    const LinearGradient(
+                                shaderCallback: (bounds) => const LinearGradient(
                                   colors: [
                                     Color(0xFF00C9A7),
                                     Color(0xFF00A6FF),
@@ -339,13 +395,11 @@ class _SplashPageState extends State<SplashPage>
                                     color: Colors.white,
                                     shadows: [
                                       Shadow(
-                                        color: const Color(0xFF00C9A7)
-                                            .withOpacity(0.5),
+                                        color: const Color(0xFF00C9A7).withOpacity(0.5),
                                         blurRadius: 20,
                                       ),
                                       Shadow(
-                                        color: const Color(0xFF00A6FF)
-                                            .withOpacity(0.5),
+                                        color: const Color(0xFF00A6FF).withOpacity(0.5),
                                         blurRadius: 30,
                                       ),
                                     ],
@@ -422,7 +476,6 @@ class _SplashPageState extends State<SplashPage>
                                     child: Stack(
                                       alignment: Alignment.center,
                                       children: [
-                                        // Outer glow
                                         Container(
                                           width: 40 * (1 + _glowAnimation.value * 0.3),
                                           height: 40 * (1 + _glowAnimation.value * 0.3),
@@ -437,15 +490,12 @@ class _SplashPageState extends State<SplashPage>
                                             ),
                                           ),
                                         ),
-                                        // Progress indicator
                                         CircularProgressIndicator(
                                           strokeWidth: 3,
                                           valueColor: AlwaysStoppedAnimation<Color>(
-                                            const Color(0xFF00C9A7)
-                                                .withOpacity(_glowAnimation.value),
+                                            const Color(0xFF00C9A7).withOpacity(_glowAnimation.value),
                                           ),
-                                          backgroundColor:
-                                              Colors.white.withOpacity(0.1),
+                                          backgroundColor: Colors.white.withOpacity(0.1),
                                         ),
                                       ],
                                     ),
@@ -455,8 +505,7 @@ class _SplashPageState extends State<SplashPage>
                                     'Loading...',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.white
-                                          .withOpacity(0.6 * _glowAnimation.value),
+                                      color: Colors.white.withOpacity(0.6 * _glowAnimation.value),
                                       letterSpacing: 2.0,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -473,7 +522,7 @@ class _SplashPageState extends State<SplashPage>
               ),
             ),
 
-            // Version text at bottom
+            // Version text at bottom (✅ now dynamic)
             Positioned(
               bottom: 40,
               left: 0,
@@ -497,7 +546,7 @@ class _SplashPageState extends State<SplashPage>
                           ),
                         ),
                         child: Text(
-                          'Version 1.0.0',
+                          _versionText,
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.white.withOpacity(0.5),
@@ -572,8 +621,7 @@ class ParticlePainter extends CustomPainter {
           const Color(0xFF00C9A7),
           const Color(0xFF00A6FF),
           particle.delay,
-        )!
-            .withOpacity(opacity);
+        )!.withOpacity(opacity);
 
         final currentX = centerX + particle.x * (1 + progress * particle.speed);
         final currentY = centerY + particle.y * (1 + progress * particle.speed);

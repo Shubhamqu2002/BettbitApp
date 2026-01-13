@@ -8,6 +8,7 @@ import '../components/gradient_background.dart';
 import '../components/login/login_method_tabs.dart';
 import '../components/login/email_login_tab.dart';
 import '../components/login/phone_login_tab.dart';
+import '../components/login/forgot_password_modal.dart'; // ✅ NEW
 import 'register_page.dart';
 import 'home_page.dart';
 import '../services/auth_service.dart';
@@ -76,11 +77,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _animationController,
-            curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
-          ),
-        );
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
 
     _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(
@@ -167,6 +168,32 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// ✅ OPEN FORGOT PASSWORD MODAL
+  void _openForgotPasswordModal() {
+    showGeneralDialog(
+      context: context,
+      barrierLabel: "Forgot Password",
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.65),
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (_, __, ___) {
+        return ForgotPasswordModal(
+          initialEmail: _emailController.text.trim(),
+          onSuccess: (msg) {
+            _showSnack(msg, success: true);
+          },
+        );
+      },
+      transitionBuilder: (context, anim, secAnim, child) {
+        final curved = Curves.easeOutCubic.transform(anim.value);
+        return Transform.scale(
+          scale: 0.96 + (0.04 * curved),
+          child: Opacity(opacity: curved, child: child),
+        );
+      },
+    );
   }
 
   /// ✅ PHONE STEP 1: Send OTP
@@ -259,10 +286,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           builder: (context, snap) {
             final logoUrl =
                 (snap.connectionState == ConnectionState.done &&
-                    snap.hasData &&
-                    (snap.data ?? '').toString().trim().isNotEmpty)
-                ? snap.data!.trim()
-                : '';
+                        snap.hasData &&
+                        (snap.data ?? '').toString().trim().isNotEmpty)
+                    ? snap.data!.trim()
+                    : '';
 
             if (logoUrl.isEmpty) {
               return Image.asset('assets/images/logo.png', fit: BoxFit.contain);
@@ -451,14 +478,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               ),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                color:
+                                    const Color(0xFF00C9A7).withOpacity(0.3),
                                 width: 1.5,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(
-                                    0xFF00C9A7,
-                                  ).withOpacity(0.2),
+                                  color:
+                                      const Color(0xFF00C9A7).withOpacity(0.2),
                                   blurRadius: 15,
                                   spreadRadius: 1,
                                 ),
@@ -507,7 +534,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                               () => _obscurePassword =
                                                   !_obscurePassword,
                                             ),
-                                            onForgot: () {},
+                                            onForgot: _openForgotPasswordModal, // ✅ UPDATED
                                             onLogin: _handleEmailLogin,
                                             onGoRegister: _goToRegister,
                                           ),
@@ -522,8 +549,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                             onVerifyOtpAndLogin:
                                                 _handleVerifyOtpAndLogin,
                                             onGoRegister: _goToRegister,
-
-                                            // ✅ NEW: Back to phone UI
                                             onBackToPhone: () {
                                               setState(() => _otpSent = false);
                                               _clearOtp();
@@ -569,9 +594,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 Icon(
                                   Icons.security_rounded,
                                   size: 16,
-                                  color: const Color(
-                                    0xFF00C9A7,
-                                  ).withOpacity(0.8),
+                                  color: const Color(0xFF00C9A7)
+                                      .withOpacity(0.8),
                                 ),
                                 const SizedBox(width: 8),
                                 Text(

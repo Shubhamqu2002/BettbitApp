@@ -11,7 +11,7 @@ class BannerService {
 
   // actual image base (static, CDN-like)
   static const String bannerBaseUrl =
-      'https://staging.nexxorra.com/assets/banner/';
+      'https://bettbit.com/assets/banner/';
 
   Future<List<String>> fetchBanners() async {
     final url = Uri.parse('$_apiBase/api/wallet/games/readfile/banner');
