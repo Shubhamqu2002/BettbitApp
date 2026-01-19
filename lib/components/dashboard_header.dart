@@ -27,7 +27,6 @@ class DashboardHeader extends StatefulWidget implements PreferredSizeWidget {
     required this.onPlatformChanged,
   });
 
-  // ❌ Not changed (as you asked)
   @override
   Size get preferredSize => const Size.fromHeight(65);
 
@@ -65,24 +64,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     return [const Color(0xFF00C9A7), const Color(0xFF00D4FF)];
   }
 
-  /// ✅ Slightly bigger logo + more left, still responsive (no overflow)
+  /// ✅ Slightly BIGGER logo (width + height increased)
   Widget _buildLogo(String? logoUrl) {
     return Container(
-      // Less left padding -> logo looks more left-sided
       padding: const EdgeInsets.only(left: 2, right: 6),
       alignment: Alignment.centerLeft,
       child: SizedBox(
-        // Slightly bigger (but safe because Expanded controls width)
-        height: 50,
+        height: 65, // ⬆️ increased
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: FittedBox(
             fit: BoxFit.contain,
             alignment: Alignment.centerLeft,
             child: SizedBox(
-              // Give a "natural" logo width target; it will shrink automatically
-              width: 170,
-              height: 50,
+              width: 180, // ⬆️ increased
+              height: 65, // ⬆️ increased
               child: _LogoRenderer(logoUrl: logoUrl),
             ),
           ),
@@ -113,7 +109,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         padding: const EdgeInsets.only(left: 8),
         child: Row(
           children: [
-            // Hamburger button
             Container(
               margin: const EdgeInsets.only(right: 6, top: 4, bottom: 4),
               decoration: BoxDecoration(
@@ -137,7 +132,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               ),
             ),
 
-            // ✅ Keeps it overflow-safe on small devices
             Expanded(
               child: FutureBuilder<String?>(
                 future: _logoUrlFuture,
@@ -156,7 +150,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
       ),
 
-      // RIGHT SIDE - Platform selector
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -186,9 +179,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
             child: Material(
               color: Colors.transparent,
               child: PopupMenuButton<String>(
-                onSelected: (value) {
-                  widget.onPlatformChanged(value);
-                },
+                onSelected: widget.onPlatformChanged,
                 elevation: 16,
                 color: const Color(0xFF1a1a2e),
                 shape: RoundedRectangleBorder(
@@ -203,95 +194,30 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   PopupMenuItem(
                     value: 'TORROSPIN',
                     padding: EdgeInsets.zero,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [
-                                  Color(0xFF00C9A7),
-                                  Color(0xFF00D4FF),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.casino_rounded,
-                              size: 18,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Torrospin',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (widget.selectedPlatform.toUpperCase() ==
-                              'TORROSPIN')
-                            const Icon(Icons.check_rounded,
-                                size: 18, color: Colors.white),
-                        ],
-                      ),
+                    child: _platformItem(
+                      icon: Icons.casino_rounded,
+                      label: 'Torrospin',
+                      gradient: const [
+                        Color(0xFF00C9A7),
+                        Color(0xFF00D4FF),
+                      ],
+                      selected:
+                          widget.selectedPlatform.toUpperCase() == 'TORROSPIN',
                     ),
                   ),
                   const PopupMenuDivider(height: 1),
                   PopupMenuItem(
                     value: 'MASCOT',
                     padding: EdgeInsets.zero,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [
-                                  Color(0xFFFF6584),
-                                  Color(0xFFFF7B9C),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.sports_esports_rounded,
-                              size: 18,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Mascot',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (widget.selectedPlatform.toUpperCase() == 'MASCOT')
-                            const Icon(Icons.check_rounded,
-                                size: 18, color: Colors.white),
-                        ],
-                      ),
+                    child: _platformItem(
+                      icon: Icons.sports_esports_rounded,
+                      label: 'Mascot',
+                      gradient: const [
+                        Color(0xFFFF6584),
+                        Color(0xFFFF7B9C),
+                      ],
+                      selected:
+                          widget.selectedPlatform.toUpperCase() == 'MASCOT',
                     ),
                   ),
                 ],
@@ -307,8 +233,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
                             colors: _platformGradient,
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
                           ),
                         ),
                         child: Icon(
@@ -341,6 +265,41 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _platformItem({
+    required IconData icon,
+    required String label,
+    required List<Color> gradient,
+    required bool selected,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(colors: gradient),
+            ),
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (selected)
+            const Icon(Icons.check_rounded, size: 18, color: Colors.white),
+        ],
+      ),
     );
   }
 }

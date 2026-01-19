@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,6 +52,7 @@ class _BillblendImpsWithdrawPageState extends State<BillblendImpsWithdrawPage>
 
   String _currency = "INR";
   String _userName = "";
+  String _walletId = ""; // ✅ gamer_id -> wallet_id (API param)
 
   final BillblendImpsWithdrawService _service = BillblendImpsWithdrawService();
 
@@ -86,7 +88,12 @@ class _BillblendImpsWithdrawPageState extends State<BillblendImpsWithdrawPage>
       _currency = (prefs.getString('currency') ?? 'INR').trim();
       if (_currency.isEmpty) _currency = "INR";
       _userName = (prefs.getString('user_name') ?? '').trim();
+      _walletId = (prefs.getString('gamer_id') ?? '').trim(); // ✅ wallet_id
     });
+
+    debugPrint(
+      "🧩 [BILLBLEND_IMPS_PAGE] prefs => user_name=$_userName | wallet_id(gamer_id)=$_walletId | currency=$_currency | groupId=${widget.groupId}",
+    );
   }
 
   double? _parseAmount() {
@@ -133,11 +140,9 @@ class _BillblendImpsWithdrawPageState extends State<BillblendImpsWithdrawPage>
         if (amount == null) {
           _amountError = "Enter a valid amount";
         } else if (amount < widget.minWithdrawal) {
-          _amountError =
-              "Minimum withdrawal is $_currency ${widget.minWithdrawal.toStringAsFixed(0)}";
+          _amountError = "Minimum withdrawal is $_currency ${widget.minWithdrawal.toStringAsFixed(0)}";
         } else if (amount > widget.maxWithdrawal) {
-          _amountError =
-              "Maximum withdrawal is $_currency ${widget.maxWithdrawal.toStringAsFixed(0)}";
+          _amountError = "Maximum withdrawal is $_currency ${widget.maxWithdrawal.toStringAsFixed(0)}";
         }
       }
 
@@ -191,23 +196,49 @@ class _BillblendImpsWithdrawPageState extends State<BillblendImpsWithdrawPage>
     _validateAll();
     if (!_isValid || _submitting) return;
 
+    // ✅ required for payload
+    if (_userName.isEmpty || _walletId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _userName.isEmpty
+                ? "user_name missing. Please login again."
+                : "wallet_id (gamer_id) missing. Please login again.",
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red.shade600,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
 
     try {
       final amount = _parseAmount() ?? double.parse(_amountCtrl.text.trim());
 
+      // ✅ debug: shows what you are sending (raw safe values)
+      debugPrint(
+        "🚀 [BILLBLEND_IMPS_PAGE] HIT API => group_id=${widget.groupId} | user_name=$_userName | wallet_id=$_walletId | currency=$_currency | amount=${amount.toStringAsFixed(0)} | bank=${_bankNameCtrl.text.trim()} | bank_code=${_bankCodeCtrl.text.trim()}",
+      );
+
       final resp = await _service.createImpsWithdraw(
         userName: _userName,
+        walletId: _walletId, // ✅ new
         currency: _currency,
         groupId: widget.groupId,
-        accountName: _accountNameCtrl.text.trim(),
-        accountNumber: _accountNumberCtrl.text.trim(),
+
+        accountName: _accountNameCtrl.text.trim(), // will be encrypted in service
+        accountNumber: _accountNumberCtrl.text.trim(), // will be encrypted in service
         amount: amount,
         bankName: _bankNameCtrl.text.trim(),
         bankCode: _bankCodeCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim(),
-        transactionPassword: _txnPassCtrl.text.trim(),
+        email: _emailCtrl.text.trim(), // will be encrypted in service
+        phone: _phoneCtrl.text.trim(), // will be encrypted in service
+        transactionPassword: _txnPassCtrl.text.trim(), // will be encrypted in service
       );
 
       if (!mounted) return;
@@ -235,7 +266,6 @@ class _BillblendImpsWithdrawPageState extends State<BillblendImpsWithdrawPage>
         ),
       );
 
-      // optional: show message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),

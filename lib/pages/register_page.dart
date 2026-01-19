@@ -409,7 +409,7 @@ class _RegisterPageState extends State<RegisterPage>
       debugPrint("➡️ [PHONE_REGISTER] Sending REGISTER OTP...");
       await _otpRegisterService.sendRegisterOtp(phone: phone);
 
-      _showSnack('OTP sent on WhatsApp ✅', success: true);
+      _showSnack('OTP sent on device ✅', success: true);
 
       setState(() => _showPhoneOtpUi = true);
     } catch (e) {
@@ -832,7 +832,7 @@ class _RegisterPageState extends State<RegisterPage>
                                       ? OtpVerifyPanel(
                                           title: "Verify OTP",
                                           subtitle:
-                                              "Enter the 6-digit OTP sent on WhatsApp",
+                                              "Enter the 6-digit OTP sent on device",
                                           isLoading: _isOtpLoading,
                                           onBack: () => setState(
                                               () => _showPhoneOtpUi = false),

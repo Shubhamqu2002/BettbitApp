@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:appsflyer_sdk/appsflyer_sdk.dart';
 
 import '../components/gradient_background.dart';
 import '../services/update/update_service.dart';
@@ -40,6 +41,10 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   String _versionText = 'Version 1.0.0';
   bool _navigated = false;
 
+  // ✅ AppsFlyer
+  AppsflyerSdk? _afSdk;
+  bool _afStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +54,9 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
 
     // ✅ Load real app version/build for UI (bottom text)
     _loadAppVersion();
+
+    // ✅ Start AppsFlyer early (Flutter way)
+    _initAppsFlyer();
 
     // Pulse animation for outer glow
     _pulseController = AnimationController(
@@ -113,8 +121,77 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     _fadeController.forward();
     _scaleController.forward();
 
-    // ✅ After 2.5 seconds decide where to go (NOW includes update check)
+    // ✅ After 2.5 seconds decide where to go (includes update check)
     Timer(const Duration(milliseconds: 2500), _decideNavigationWithUpdateGate);
+  }
+
+  /// ✅ Flutter equivalent of Android `AppsFlyerLib.init(...)` in Application.onCreate
+  Future<void> _initAppsFlyer() async {
+    try {
+      // Prefer .env; fallback to your key so app still works
+      final envKey = (dotenv.env['APPSFLYER_DEV_KEY'] ?? '').trim();
+      final devKey =
+          envKey.isNotEmpty ? envKey : 'ZrQNxQJYWCfqApE3GtJ5SF';
+
+      if (devKey.isEmpty) {
+        debugPrint('⚠️ [AF] Missing dev key. Add APPSFLYER_DEV_KEY in .env');
+        return;
+      }
+
+      final options = AppsFlyerOptions(
+        afDevKey: devKey,
+        appId: '', // iOS only (App Store ID). Keep empty for Android-only.
+        showDebug: true, // set false in release builds
+        manualStart: false, // set true if you want consent-based deferred start
+      );
+
+      final sdk = AppsflyerSdk(options);
+
+      // IMPORTANT: initSdk returns Future<void> (don’t assign it to variables)
+      await sdk.initSdk(
+        registerConversionDataCallback: true,
+        registerOnAppOpenAttributionCallback: true,
+        registerOnDeepLinkingCallback: true,
+      );
+
+      // Callback setters return void (don’t assign them)
+      sdk.onInstallConversionData((res) {
+        debugPrint('✅ [AF] Install conversion: $res');
+      });
+
+      sdk.onAppOpenAttribution((res) {
+        debugPrint('✅ [AF] App open attribution: $res');
+      });
+
+      sdk.onDeepLinking((res) {
+        debugPrint('✅ [AF] Deep link: $res');
+      });
+
+      sdk.startSDK();
+
+      _afSdk = sdk;
+      _afStarted = true;
+
+      debugPrint('✅ [AF] SDK started');
+
+      // ✅ Send a tiny event so you can verify in dashboard/debug logs
+      await _logAfEvent(
+        'af_splash_ready',
+        {'ts': DateTime.now().millisecondsSinceEpoch},
+      );
+    } catch (e) {
+      debugPrint('❌ [AF] init/start failed: $e');
+    }
+  }
+
+  Future<void> _logAfEvent(String name, Map<String, dynamic> values) async {
+    try {
+      if (!_afStarted || _afSdk == null) return;
+      await _afSdk!.logEvent(name, values);
+      debugPrint('✅ [AF] event sent: $name $values');
+    } catch (e) {
+      debugPrint('❌ [AF] event failed: $e');
+    }
   }
 
   void _generateParticles() {
@@ -165,6 +242,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     // If update required -> go UpdatePage (blocks login)
     if (result.needsUpdate && result.info != null) {
       _navigated = true;
+
+      // Optional event for tracking
+      await _logAfEvent('af_update_required', {
+        'current_build': currentBuild,
+        'current_version': currentVersion,
+      });
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -187,8 +271,16 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
     final gamerId = prefs.getString('gamer_id') ?? '';
 
-    final targetRoute =
-        (isLoggedIn && gamerId.isNotEmpty) ? HomePage.routeName : LoginPage.routeName;
+    final targetRoute = (isLoggedIn && gamerId.isNotEmpty)
+        ? HomePage.routeName
+        : LoginPage.routeName;
+
+    // Optional event for tracking
+    await _logAfEvent('af_splash_route', {
+      'route': targetRoute,
+      'is_logged_in': isLoggedIn,
+      'has_gamer_id': gamerId.isNotEmpty,
+    });
 
     if (!mounted || _navigated) return;
     _navigated = true;
@@ -376,42 +468,36 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                       opacity: _fadeAnimation,
                       child: Column(
                         children: [
-                          // App title with gradient and glow
-                          Stack(
-                            children: [
-                              ShaderMask(
-                                shaderCallback: (bounds) => const LinearGradient(
-                                  colors: [
-                                    Color(0xFF00C9A7),
-                                    Color(0xFF00A6FF),
-                                  ],
-                                ).createShader(bounds),
-                                child: Text(
-                                  'I Gaming',
-                                  style: TextStyle(
-                                    fontSize: 42,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 2.0,
-                                    color: Colors.white,
-                                    shadows: [
-                                      Shadow(
-                                        color: const Color(0xFF00C9A7).withOpacity(0.5),
-                                        blurRadius: 20,
-                                      ),
-                                      Shadow(
-                                        color: const Color(0xFF00A6FF).withOpacity(0.5),
-                                        blurRadius: 30,
-                                      ),
-                                    ],
+                          ShaderMask(
+                            shaderCallback: (bounds) => const LinearGradient(
+                              colors: [
+                                Color(0xFF00C9A7),
+                                Color(0xFF00A6FF),
+                              ],
+                            ).createShader(bounds),
+                            child: Text(
+                              'I Gaming',
+                              style: TextStyle(
+                                fontSize: 42,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2.0,
+                                color: Colors.white,
+                                shadows: [
+                                  Shadow(
+                                    color: const Color(0xFF00C9A7).withOpacity(0.5),
+                                    blurRadius: 20,
                                   ),
-                                ),
+                                  Shadow(
+                                    color: const Color(0xFF00A6FF).withOpacity(0.5),
+                                    blurRadius: 30,
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
 
                           const SizedBox(height: 16),
 
-                          // Subtitle with animated container
                           TweenAnimationBuilder<double>(
                             duration: const Duration(milliseconds: 1500),
                             tween: Tween(begin: 0.0, end: 1.0),
@@ -464,7 +550,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
 
                           const SizedBox(height: 48),
 
-                          // Animated loading indicator
                           AnimatedBuilder(
                             animation: _glowController,
                             builder: (context, child) {
@@ -522,7 +607,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
               ),
             ),
 
-            // Version text at bottom (✅ now dynamic)
             Positioned(
               bottom: 40,
               left: 0,
@@ -621,7 +705,8 @@ class ParticlePainter extends CustomPainter {
           const Color(0xFF00C9A7),
           const Color(0xFF00A6FF),
           particle.delay,
-        )!.withOpacity(opacity);
+        )!
+            .withOpacity(opacity);
 
         final currentX = centerX + particle.x * (1 + progress * particle.speed);
         final currentY = centerY + particle.y * (1 + progress * particle.speed);

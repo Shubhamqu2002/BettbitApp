@@ -70,19 +70,19 @@ class _DepositPageState extends State<DepositPage> {
     }
   }
 
-  void _openCash() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => GradientBackground(
-          child: CashDepositPage(
-            minDeposit: 100.00,
-            maxDeposit: 20000.00,
-          ),
-        ),
-      ),
-    );
-  }
+  // void _openCash() {
+  //   Navigator.push(
+  //     context,
+  //     MaterialPageRoute(
+  //       builder: (_) => GradientBackground(
+  //         child: CashDepositPage(
+  //           minDeposit: 100.00,
+  //           maxDeposit: 20000.00,
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   void _openBillblendMethod(DepositMethod m) {
     if (m.depositKey.toUpperCase() == "UPI") {
@@ -240,15 +240,15 @@ class _DepositPageState extends State<DepositPage> {
                         ] else if (_error != null) ...[
                           _ErrorCard(message: _error!, onRetry: _initLoad),
                         ] else ...[
-                          _DepositMethodTile(
-                            title: "Cash Deposit",
-                            subtitle: "$_currency 100 - $_currency 20,000",
-                            icon: Icons.account_balance_wallet_rounded,
-                            badgeText: "Instant",
-                            badgeColor: successAccent,
-                            onTap: _openCash,
-                          ),
-                          const SizedBox(height: 16),
+                          // _DepositMethodTile(
+                          //   title: "Cash Deposit",
+                          //   subtitle: "$_currency 100 - $_currency 20,000",
+                          //   icon: Icons.account_balance_wallet_rounded,
+                          //   badgeText: "Instant",
+                          //   badgeColor: successAccent,
+                          //   onTap: _openCash,
+                          // ),
+                          // const SizedBox(height: 16),
 
                           // ---------------- BILLBLEND ----------------
                           ..._billblendMethods.map((m) {
@@ -271,7 +271,7 @@ class _DepositPageState extends State<DepositPage> {
                           if (_gptMethods.isNotEmpty) ...[
                             const SizedBox(height: 6),
                             Text(
-                              "More Options",
+                              "Payment Options",
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 16,

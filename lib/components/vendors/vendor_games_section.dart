@@ -21,6 +21,8 @@ class VendorGamesSection extends StatefulWidget {
 }
 
 class _VendorGamesSectionState extends State<VendorGamesSection> {
+  static const String _allVendorCode = 'ALL';
+
   final VendorGameService _service = VendorGameService();
   final ScrollController _scrollController = ScrollController();
 
@@ -80,7 +82,8 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _errorMessage = null;
       _vendors = [];
       _games = [];
-      _selectedVendorCode = null;
+      // ✅ Default select ALL always
+      _selectedVendorCode = _allVendorCode;
       _currentGamePage = 0;
       _hasMoreGames = false;
       _totalGames = 0;
@@ -94,22 +97,9 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
       if (!mounted) return;
 
-      if (vendors.isEmpty) {
-        setState(() {
-          _isLoadingVendors = false;
-          _isLoadingGames = false;
-          _vendors = [];
-          _games = [];
-          _selectedVendorCode = null;
-          _hasMoreGames = false;
-          _errorMessage = 'No vendors found for this selection.';
-        });
-        return;
-      }
-
+      // Even if vendors empty, ALL still exists as hardcoded card
       setState(() {
         _vendors = vendors;
-        _selectedVendorCode = vendors.first.vendorCode;
         _isLoadingVendors = false;
       });
 
@@ -130,6 +120,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     if (reset) {
       setState(() {
         _isLoadingGames = true;
+        _errorMessage = null;
         _games = [];
         _currentGamePage = 0;
         _hasMoreGames = false;
@@ -142,9 +133,12 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     }
 
     try {
+      // ✅ If ALL selected, pass vendorCode = "ALL"
+      final vendorCodeToSend = _selectedVendorCode ?? _allVendorCode;
+
       final result = await _service.fetchGames(
         category: widget.category,
-        vendorCode: _selectedVendorCode!,
+        vendorCode: vendorCodeToSend, // ✅ ALL or real vendorCode
         platform: widget.platform,
         page: _currentGamePage,
         size: 24,
@@ -163,6 +157,9 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         _hasMoreGames = !result.last;
         _isLoadingGames = false;
         _isLoadingMoreGames = false;
+
+        // keep error cleared on success
+        _errorMessage = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -180,11 +177,23 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     await _loadGames(reset: false);
   }
 
+  void _onAllTap() async {
+    if (_selectedVendorCode == _allVendorCode) return;
+
+    setState(() {
+      _selectedVendorCode = _allVendorCode;
+      _errorMessage = null;
+    });
+
+    await _loadGames(reset: true);
+  }
+
   void _onVendorTap(VendorModel vendor) async {
     if (_selectedVendorCode == vendor.vendorCode) return;
 
     setState(() {
       _selectedVendorCode = vendor.vendorCode;
+      _errorMessage = null;
     });
 
     await _loadGames(reset: true);
@@ -288,13 +297,11 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     );
   }
 
-  // ✅ NEW: transparent stylish launching UI (no background card)
   Widget _buildTransparentLaunchingOverlay() {
     return Positioned.fill(
       child: IgnorePointer(
         ignoring: false,
         child: Container(
-          // lighter dim, no “box”
           color: Colors.black.withOpacity(0.18),
           child: Center(
             child: Column(
@@ -425,7 +432,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
               ],
             ),
 
-            // ✅ updated overlay style (transparent, no box)
             if (_isLaunchingGame) _buildTransparentLaunchingOverlay(),
           ],
         ),
@@ -435,11 +441,12 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   Widget _buildVendorsRow() {
     if (_isLoadingVendors) {
+      // show skeleton including ALL slot count style
       return SizedBox(
         height: 96,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          itemCount: 5,
+          itemCount: 6,
           separatorBuilder: (_, __) => const SizedBox(width: 10),
           itemBuilder: (_, __) => Container(
             width: 88,
@@ -452,87 +459,148 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
     }
 
-    if (_vendors.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8.0),
-        child: Text(
-          'No vendors available.',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-      );
-    }
-
     return SizedBox(
       height: 98,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: _vendors.map((vendor) {
-            final bool isSelected = vendor.vendorCode == _selectedVendorCode;
-            return GestureDetector(
-              onTap: () => _onVendorTap(vendor),
-              child: Container(
-                width: 90,
-                margin: const EdgeInsets.only(right: 10),
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: isSelected
-                      ? const LinearGradient(
-                          colors: [
-                            Color(0xFF21C8F6),
-                            Color(0xFF637BFF),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                      : null,
-                  color: !isSelected ? Colors.white.withOpacity(0.04) : null,
-                  border: Border.all(
-                    color: isSelected
-                        ? Colors.white.withOpacity(0.9)
-                        : Colors.white.withOpacity(0.08),
-                    width: isSelected ? 1.4 : 1.0,
+          children: [
+            // ✅ Hardcoded ALL card (same size as vendor cards)
+            _buildAllVendorCard(),
+
+            // ✅ Real vendor cards
+            ..._vendors.map((vendor) {
+              final bool isSelected = vendor.vendorCode == _selectedVendorCode;
+              return GestureDetector(
+                onTap: () => _onVendorTap(vendor),
+                child: Container(
+                  width: 90,
+                  margin: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: isSelected
+                        ? const LinearGradient(
+                            colors: [
+                              Color(0xFF21C8F6),
+                              Color(0xFF637BFF),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
+                    color: !isSelected ? Colors.white.withOpacity(0.04) : null,
+                    border: Border.all(
+                      color: isSelected
+                          ? Colors.white.withOpacity(0.9)
+                          : Colors.white.withOpacity(0.08),
+                      width: isSelected ? 1.4 : 1.0,
+                    ),
                   ),
-                ),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: AspectRatio(
-                          aspectRatio: 1,
-                          child: Container(
-                            color: Colors.black.withOpacity(0.3),
-                            child: Image.network(
-                              vendor.resolvedImageUrl,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const Icon(
-                                Icons.image_not_supported_outlined,
-                                color: Colors.white38,
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: Container(
+                              color: Colors.black.withOpacity(0.3),
+                              child: Image.network(
+                                vendor.resolvedImageUrl,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.image_not_supported_outlined,
+                                  color: Colors.white38,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      vendor.vendorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.white70,
-                        fontSize: 11,
-                        fontWeight:
-                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                      const SizedBox(height: 4),
+                      Text(
+                        vendor.vendorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.white70,
+                          fontSize: 11,
+                          fontWeight:
+                              isSelected ? FontWeight.w700 : FontWeight.w500,
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAllVendorCard() {
+    final bool isSelected = (_selectedVendorCode ?? _allVendorCode) == _allVendorCode;
+
+    return GestureDetector(
+      onTap: _onAllTap,
+      child: Container(
+        width: 90,
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: isSelected
+              ? const LinearGradient(
+                  colors: [
+                    Color(0xFF21C8F6),
+                    Color(0xFF637BFF),
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: !isSelected ? Colors.white.withOpacity(0.04) : null,
+          border: Border.all(
+            color: isSelected
+                ? Colors.white.withOpacity(0.9)
+                : Colors.white.withOpacity(0.08),
+            width: isSelected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: Container(
+                    color: Colors.black.withOpacity(0.3),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.apps_rounded,
+                      size: 34,
+                      color: Colors.white.withOpacity(isSelected ? 1.0 : 0.75),
+                    ),
+                  ),
                 ),
               ),
-            );
-          }).toList(),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'ALL',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white70,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -555,7 +623,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8.0),
         child: Text(
-          'No games available for this vendor.',
+          'No games available for this selection.',
           style: TextStyle(color: Colors.white70, fontSize: 13),
         ),
       );
@@ -690,14 +758,10 @@ class _GameWebViewPageState extends State<GameWebViewPage> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) {
-            setState(() {
-              _isLoading = true;
-            });
+            setState(() => _isLoading = true);
           },
           onPageFinished: (url) {
-            setState(() {
-              _isLoading = false;
-            });
+            setState(() => _isLoading = false);
           },
           onWebResourceError: (error) {},
         ),

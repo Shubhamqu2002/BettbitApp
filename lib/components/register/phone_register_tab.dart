@@ -1,4 +1,3 @@
-// lib/components/register/phone_register_tab.dart
 import 'package:flutter/material.dart';
 
 import '../primary_button.dart';
@@ -43,8 +42,6 @@ class PhoneRegisterTab extends StatelessWidget {
       physics: const BouncingScrollPhysics(),
       child: Column(
         children: [
-          // small info chip
-
           const SizedBox(height: 16),
 
           TextInputField(
@@ -64,9 +61,10 @@ class PhoneRegisterTab extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
+          // ✅ Email is now MANDATORY (only label + hint changed)
           TextInputField(
-            label: 'Email Address (Optional)',
-            hintText: 'Enter email (optional)',
+            label: 'Email Address',
+            hintText: 'Enter your email address',
             controller: emailOptionalController,
             keyboardType: TextInputType.emailAddress,
             prefixIcon: const Icon(Icons.email_outlined, size: 20),
@@ -160,7 +158,7 @@ class PhoneRegisterTab extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ✅ Same detected text at last (as you asked)
+          // same detected country widget
           detectedCountryWidget,
           const SizedBox(height: 22),
 

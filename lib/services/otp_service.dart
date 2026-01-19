@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import '../util/crypto_utils.dart';
 
 class OtpService {
-  static const String _root = "https://communications.nexxorra.com";
+  static const String _root = "https://communications.bettbit.com";
   static const String _geoUrl = "https://ipwho.is/";
 
   // Cached values (avoid repeated geo calls)
@@ -141,10 +141,10 @@ class OtpService {
       "operator_id": "n8n",
       "source": "LOGIN",
       "user_identifier": encryptedIdentifier,
-      "vendor_name": "VERIFYWAY",
+      "vendor_name": "TWILIO",
       "message_type": "OTP",
-      "message_body": "Your OTP is XXXXXX",
-      "channel": "WHATSAPP",
+      "message_body": "XXXXXX is your BETTBIT OTP. Please use it to proceed further. Enjoy  BETTBIT.",
+      "channel": "SIM",
     };
 
     debugPrint("📦 [SEND OTP] Payload → $payload");

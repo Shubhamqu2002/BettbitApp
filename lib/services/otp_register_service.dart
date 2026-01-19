@@ -7,7 +7,7 @@ import '../util/crypto_utils.dart';
 import 'register_services.dart';
 
 class OtpRegisterService {
-  static const String _root = "https://communications.nexxorra.com";
+  static const String _root = "https://communications.bettbit.com";
 
   final RegisterService _registerService;
 
@@ -38,10 +38,10 @@ class OtpRegisterService {
       "operator_id": "n8n",
       "source": "REGISTER",
       "user_identifier": encryptedIdentifier,
-      "vendor_name": "VERIFYWAY",
+      "vendor_name": "TWILIO",
       "message_type": "OTP",
-      "message_body": "Your OTP is XXXXXX",
-      "channel": "WHATSAPP",
+      "message_body": "XXXXXX is your BETTBIT OTP. Please use it to proceed further. Enjoy  BETTBIT.",
+      "channel": "SIM",
     };
 
     debugPrint("📦 [OTP][SEND][REGISTER] Payload => $payload");

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../components/gradient_background.dart';
-import '../components/withdrawl/cash_withdraw_page.dart';
+// import '../components/withdrawl/cash_withdraw_page.dart'; // ✅ COMMENTED (Cash hidden)
 import '../components/withdrawl/billblend_imps_withdraw_page.dart';
 import '../components/withdrawl/gpt_withdraw_page.dart';
 
@@ -17,11 +17,11 @@ class WithdrawPage extends StatefulWidget {
 }
 
 class _WithdrawPageState extends State<WithdrawPage> {
-  // CASH fixed (as you want)
-  static const String cashMethod = "CASH";
-  static const String cashKey = "CASH";
-  static const double cashMin = 200.00;
-  static const double cashMax = 20000.00;
+  // ✅ COMMENTED: CASH fixed (hidden as per requirement)
+  // static const String cashMethod = "CASH";
+  // static const String cashKey = "CASH";
+  // static const double cashMin = 200.00;
+  // static const double cashMax = 20000.00;
 
   static const Color primaryAccent = Color(0xFF6366F1);
   static const Color successAccent = Color(0xFF10B981);
@@ -169,7 +169,13 @@ class _WithdrawPageState extends State<WithdrawPage> {
                     children: [
                       Icon(Icons.refresh_rounded, color: Colors.white.withOpacity(0.85), size: 18),
                       const SizedBox(width: 6),
-                      Text(_country, style: TextStyle(color: Colors.white.withOpacity(0.85), fontWeight: FontWeight.w700)),
+                      Text(
+                        _country,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.85),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -218,32 +224,32 @@ class _WithdrawPageState extends State<WithdrawPage> {
                         ),
                         const SizedBox(height: 24),
 
-                        // CASH first always
-                        _MethodTile(
-                          title: cashMethod,
-                          subtitle: "Min ${cashMin.toStringAsFixed(0)} • Max ${cashMax.toStringAsFixed(0)}",
-                          icon: Icons.payments_rounded,
-                          badgeText: "Instant",
-                          badgeColor: successAccent,
-                          ctaText: "Withdraw Now",
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => GradientBackground(
-                                  child: CashWithdrawPage(
-                                    withdrawalMethod: cashMethod,
-                                    withdrawalKey: cashKey,
-                                    minWithdrawal: cashMin,
-                                    maxWithdrawal: cashMax,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-
-                        const SizedBox(height: 18),
+                        // ✅ COMMENTED: CASH first always
+                        // _MethodTile(
+                        //   title: cashMethod,
+                        //   subtitle:
+                        //       "Min ${cashMin.toStringAsFixed(0)} • Max ${cashMax.toStringAsFixed(0)}",
+                        //   icon: Icons.payments_rounded,
+                        //   badgeText: "Instant",
+                        //   badgeColor: successAccent,
+                        //   ctaText: "Withdraw Now",
+                        //   onTap: () {
+                        //     Navigator.push(
+                        //       context,
+                        //       MaterialPageRoute(
+                        //         builder: (_) => GradientBackground(
+                        //           child: CashWithdrawPage(
+                        //             withdrawalMethod: cashMethod,
+                        //             withdrawalKey: cashKey,
+                        //             minWithdrawal: cashMin,
+                        //             maxWithdrawal: cashMax,
+                        //           ),
+                        //         ),
+                        //       ),
+                        //     );
+                        //   },
+                        // ),
+                        // const SizedBox(height: 18),
 
                         if (_loading)
                           _LoadingBox()
@@ -253,7 +259,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
                             onRetry: _boot,
                           )
                         else if (_items.isEmpty)
-                          _InfoBox(text: "No additional withdrawal methods available for $_country")
+                          _InfoBox(text: "No withdrawal methods available for $_country")
                         else
                           ..._items.map((it) {
                             return Padding(
@@ -595,7 +601,10 @@ class _ErrorBox extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white.withOpacity(0.12)),
               ),
-              child: Text("Retry", style: TextStyle(color: Colors.white.withOpacity(0.85), fontWeight: FontWeight.w800)),
+              child: Text(
+                "Retry",
+                style: TextStyle(color: Colors.white.withOpacity(0.85), fontWeight: FontWeight.w800),
+              ),
             ),
           ),
         ],

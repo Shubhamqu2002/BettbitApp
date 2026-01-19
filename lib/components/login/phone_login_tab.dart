@@ -1,5 +1,8 @@
 // lib/components/login/phone_login_tab.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:smart_auth/smart_auth.dart';
+
 import '../primary_button.dart';
 import '../../services/otp_service.dart';
 
@@ -19,7 +22,7 @@ class PhoneLoginTab extends StatefulWidget {
 
   final VoidCallback onGoRegister;
 
-  // ✅ NEW: Back button handler to return to phone screen
+  // ✅ Back button handler to return to phone screen
   final VoidCallback onBackToPhone;
 
   const PhoneLoginTab({
@@ -43,6 +46,11 @@ class PhoneLoginTab extends StatefulWidget {
 class _PhoneLoginTabState extends State<PhoneLoginTab> {
   final OtpService _otpService = OtpService();
 
+  // ✅ SmartAuth (Android SMS User Consent)
+  final SmartAuth _smartAuth = SmartAuth.instance;
+
+  bool _consentListening = false;
+
   String _callingCode = "";
   bool _ccLoading = true;
 
@@ -50,6 +58,122 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
   void initState() {
     super.initState();
     _loadCallingCode();
+
+    // If already on OTP screen, start listener
+    if (widget.otpSent) {
+      _startSmartAuthListener();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PhoneLoginTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Phone -> OTP screen
+    if (!oldWidget.otpSent && widget.otpSent) {
+      _startSmartAuthListener();
+    }
+
+    // OTP -> Phone screen
+    if (oldWidget.otpSent && !widget.otpSent) {
+      _stopSmartAuthListener();
+      _consentListening = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopSmartAuthListener();
+    super.dispose();
+  }
+
+  // ✅ IMPORTANT: Start consent listener BEFORE OTP SMS arrives.
+  Future<void> _startSmartAuthListener() async {
+    if (!Platform.isAndroid) return; // SmartAuth consent flow is Android-only
+    if (_consentListening) return;
+
+    _consentListening = true;
+
+    try {
+      // ignore: avoid_print
+      print("✅ [OTP_AUTOFILL] SmartAuth: Listening (User Consent API)...");
+
+      final SmartAuthResult<SmartAuthSms> result =
+          await _smartAuth.getSmsWithUserConsentApi();
+
+      if (!mounted) return;
+
+      // After one run, allow re-start for future OTPs (resend, retry etc.)
+      _consentListening = false;
+
+      if (result.hasData) {
+        final SmartAuthSms data = result.requireData;
+
+        final String smsText = data.sms; // full SMS
+        final String codeText = (data.code ?? "").toString(); // extracted code (optional)
+
+        // ignore: avoid_print
+        print("✅ [OTP_AUTOFILL] Received SMS: $smsText");
+        // ignore: avoid_print
+        print("✅ [OTP_AUTOFILL] Received code: $codeText");
+
+        final String combined = codeText.isNotEmpty ? codeText : smsText;
+        final otp = _extractSixDigitOtp(combined);
+
+        if (otp != null) {
+          _applyOtpToBoxes(otp);
+        } else {
+          // ignore: avoid_print
+          print("⚠️ [OTP_AUTOFILL] Could not extract 6-digit OTP from message.");
+        }
+      } else if (result.isCanceled) {
+        // User tapped "Deny" / dismissed the consent popup
+        // ignore: avoid_print
+        print("⚠️ [OTP_AUTOFILL] User canceled consent dialog.");
+      } else if (result.hasError) {
+        // ignore: avoid_print
+        print("⚠️ [OTP_AUTOFILL] SmartAuth error: ${result.error?.toString()}");
+      } else {
+        // ignore: avoid_print
+        print("⚠️ [OTP_AUTOFILL] No SMS captured (unknown state).");
+      }
+    } catch (e) {
+      _consentListening = false;
+      // ignore: avoid_print
+      print("⚠️ [OTP_AUTOFILL] SmartAuth exception: ${e.toString()}");
+    }
+  }
+
+  void _stopSmartAuthListener() {
+    try {
+      _smartAuth.removeUserConsentApiListener();
+      // ignore: avoid_print
+      print("✅ [OTP_AUTOFILL] SmartAuth listener stopped");
+    } catch (_) {}
+  }
+
+  // ✅ Your SMS: "157753 is your BETTBIT OTP..."
+  String? _extractSixDigitOtp(String text) {
+    final match = RegExp(r'(\d{6})').firstMatch(text);
+    return match?.group(1);
+  }
+
+  void _applyOtpToBoxes(String otp) {
+    if (otp.length != 6) return;
+
+    for (int i = 0; i < 6; i++) {
+      widget.otpControllers[i].text = otp[i];
+    }
+
+    if (widget.otpFocusNodes.isNotEmpty) {
+      widget.otpFocusNodes.last.requestFocus();
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    // ignore: avoid_print
+    print("✅ [OTP_AUTOFILL] Autofilled OTP: $otp");
+
+    setState(() {});
   }
 
   Future<void> _loadCallingCode() async {
@@ -68,6 +192,18 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
         _ccLoading = false;
       });
     }
+  }
+
+  // ✅ Wrap Continue so listener starts BEFORE SMS comes
+  void _onContinuePressed() {
+    _startSmartAuthListener(); // don't await (UI must stay same)
+    widget.onSendOtp();
+  }
+
+  // ✅ Wrap Resend also
+  void _onResendPressed() {
+    _startSmartAuthListener(); // restart listening for the new SMS
+    widget.onSendOtp();
   }
 
   Widget _label(String text) {
@@ -140,8 +276,9 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Colors.white.withOpacity(0.92)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Colors.white.withOpacity(0.92),
+                    ),
                   ),
                 )
               : Text(
@@ -265,7 +402,20 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
             borderSide: const BorderSide(color: Color(0xFF00C9A7), width: 2),
           ),
         ),
+
+        // iOS one-time-code suggestion (doesn't change UI)
+        autofillHints: i == 0 ? const [AutofillHints.oneTimeCode] : null,
+
         onChanged: (v) {
+          // paste fallback: paste 6 digits into first box
+          if (i == 0 && v.length > 1) {
+            final otp = _extractSixDigitOtp(v);
+            if (otp != null) {
+              _applyOtpToBoxes(otp);
+              return;
+            }
+          }
+
           if (v.length == 1 && i < widget.otpFocusNodes.length - 1) {
             widget.otpFocusNodes[i + 1].requestFocus();
           }
@@ -290,7 +440,6 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 10),
-
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
@@ -309,7 +458,7 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  "We’ll send an OTP to your WhatsApp for verification from VerifyWay.",
+                  "We’ll send an OTP for verification .",
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.90),
                     fontWeight: FontWeight.w700,
@@ -321,12 +470,9 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
             ],
           ),
         ),
-
         const SizedBox(height: 18),
         _label('Phone Number'),
         const SizedBox(height: 10),
-
-        // ✅ Better alignment + premium row
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -335,12 +481,11 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
             Expanded(child: _phoneField()),
           ],
         ),
-
         const SizedBox(height: 18),
 
         PrimaryButton(
           label: 'Continue',
-          onPressed: widget.onSendOtp,
+          onPressed: _onContinuePressed, // ✅ changed
           isLoading: widget.isSendingOtp,
         ),
 
@@ -357,8 +502,6 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 6),
-
-        // ✅ Back row
         Row(
           children: [
             InkWell(
@@ -420,7 +563,6 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
 
         const SizedBox(height: 14),
 
-        // Success banner
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
@@ -446,7 +588,7 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  "OTP sent successfully from VerifyWay",
+                  "OTP sent successfully",
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.92),
                     fontWeight: FontWeight.w800,
@@ -460,7 +602,6 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
 
         const SizedBox(height: 14),
 
-        // phone preview + resend
         if (masked.isNotEmpty)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -485,7 +626,7 @@ class _PhoneLoginTabState extends State<PhoneLoginTab> {
                   ),
                 ),
                 TextButton(
-                  onPressed: widget.onSendOtp,
+                  onPressed: _onResendPressed, // ✅ changed
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF00C9A7),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

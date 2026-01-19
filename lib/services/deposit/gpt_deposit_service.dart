@@ -39,6 +39,13 @@ class GptDepositService {
     }
   }
 
+  /// INV-YEAR-TIMESTAMP (INV hardcoded, year dynamic, timestamp = DateTime.now().millisecondsSinceEpoch)
+  String _buildInvoiceReference() {
+    final year = DateTime.now().year; // e.g., 2026
+    final ts = DateTime.now().millisecondsSinceEpoch; // e.g., 946553635353
+    return "INV-$year-$ts";
+  }
+
   /// Calls GPT invoice initiate API
   ///
   /// Return map:
@@ -65,6 +72,9 @@ class GptDepositService {
     try {
       final username = await _getSavedUsername();
 
+      // ✅ Generate reference: INV-YEAR-TIMESTAMP
+      final reference = _buildInvoiceReference();
+
       // ✅ Encrypt email like AuthService
       final encryptedEmail = encryptText(email);
 
@@ -76,6 +86,10 @@ class GptDepositService {
         "webhook_url": webhookUrl,
         "ip_address": ipAddress,
         "username": username,
+
+        // ✅ NEW: reference (after username, as you asked)
+        "reference": reference,
+
         "customer": {
           "first_name": firstName,
           "last_name": lastName,
@@ -88,6 +102,8 @@ class GptDepositService {
       // ✅ DEBUG: request logs
       print("📦 [GPT INIT] URL: $_initUrl");
       print("📦 [GPT INIT] method_code: $methodCode");
+      print("👤 [GPT INIT] username: $username");
+      print("🧾 [GPT INIT] reference: $reference");
       print("🔐 [GPT INIT] Encrypted email: $encryptedEmail");
       print("📦 [GPT INIT] Payload: ${jsonEncode(payload)}");
 
@@ -116,7 +132,7 @@ class GptDepositService {
 
       String message = ok ? "Success" : "Request failed";
       String paymentUrl = "";
-      String reference = "";
+      String referenceFromApi = "";
 
       if (decoded is Map) {
         final m = decoded["message"] ?? decoded["msg"] ?? decoded["error"];
@@ -130,14 +146,18 @@ class GptDepositService {
             if (url != null) paymentUrl = url.toString();
 
             final ref = innerData["reference"];
-            if (ref != null) reference = ref.toString();
+            if (ref != null) referenceFromApi = ref.toString();
           }
         }
       }
 
+      // ✅ If API didn't return reference, keep the one we generated
+      final finalReference =
+          referenceFromApi.trim().isNotEmpty ? referenceFromApi : reference;
+
       // ✅ DEBUG: extracted fields
       print("🔗 [GPT INIT] Extracted payment_url: $paymentUrl");
-      print("🧾 [GPT INIT] Extracted reference: $reference");
+      print("🧾 [GPT INIT] Extracted reference: $finalReference");
 
       if (ok && paymentUrl.trim().isEmpty) {
         return {
@@ -145,7 +165,7 @@ class GptDepositService {
           "statusCode": status,
           "message": "payment_url not found in response",
           "payment_url": "",
-          "reference": reference,
+          "reference": finalReference,
         };
       }
 
@@ -154,7 +174,7 @@ class GptDepositService {
         "statusCode": status,
         "message": message,
         "payment_url": paymentUrl,
-        "reference": reference,
+        "reference": finalReference,
       };
     } catch (e) {
       print("❌ [GPT INIT] Error: $e");
