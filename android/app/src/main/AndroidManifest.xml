@@ -5,6 +5,7 @@
         android:label="Bettbit_gamer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"

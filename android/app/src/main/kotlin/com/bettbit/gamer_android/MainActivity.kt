@@ -1,4 +1,4 @@
-package com.example.demo_gamer
+package com.bettbit.gamer_android
 
 import io.flutter.embedding.android.FlutterActivity
 

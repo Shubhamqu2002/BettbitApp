@@ -44,7 +44,7 @@ dependencies:
   package_info_plus: ^8.0.0
   sms_autofill: ^2.4.0
   smart_auth: ^3.2.0
-  appsflyer_sdk: ^6.17.8
+  appsflyer_sdk: ^6.17.0
 
 
   # The following adds the Cupertino Icons font to your application.
