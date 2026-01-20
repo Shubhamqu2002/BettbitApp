@@ -6,11 +6,17 @@ import 'pages/login_page.dart';
 import 'pages/register_page.dart';
 import 'pages/home_page.dart';
 
+// ✅ NEW
+import 'services/analytics/appsflyer_service.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Load .env (must be in project root and added in pubspec assets)
   await dotenv.load(fileName: ".env");
+
+  // ✅ Start AppsFlyer once (global)
+  await AppsFlyerService.instance.init();
 
   runApp(const IGamingApp());
 }

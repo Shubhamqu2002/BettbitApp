@@ -10,6 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../util/crypto_utils.dart';
 import '../util/token_manager.dart';
 
+// ✅ NEW
+import 'analytics/appsflyer_service.dart';
+
 class RegisterService {
   static final String _baseUrl =
       dotenv.env['AUTH_BASE_URL'] ??
@@ -45,7 +48,6 @@ class RegisterService {
   }
 
   /// Normalize phone → +<cc><last10digits>
-  /// (keeps your current backend expectation)
   String normalizePhoneWithCallingCode(String input, String callingCode) {
     var v = input.trim().replaceAll(' ', '').replaceAll('-', '');
 
@@ -62,13 +64,6 @@ class RegisterService {
   }
 
   /// ✅ Fetch geo info (country_code, country, currency, calling_code)
-  /// Returns:
-  /// {
-  ///   "country_code":"IN",
-  ///   "country":"India",
-  ///   "currency":"INR",
-  ///   "calling_code":"+91"
-  /// }
   Future<Map<String, dynamic>> fetchGeoInfo({bool forceRefresh = false}) async {
     if (!forceRefresh && _geoCache != null) {
       debugPrint("🌍 [GEO] Using cached geo => $_geoCache");
@@ -132,7 +127,7 @@ class RegisterService {
   /// ✅ Main register API
   Future<Map<String, dynamic>> registerGamer({
     required String email,
-    required String number, // can be "" (optional flow)
+    required String number,
     required String password,
     required String firstName,
     required String lastName,
@@ -140,8 +135,8 @@ class RegisterService {
     required String gender,
     required String countryCode,
     required String country,
-    required String registrationType, // ✅ EMAIL / PHONE
-    required String callingCode, // ✅ +91/+880
+    required String registrationType, // EMAIL / PHONE
+    required String callingCode,
     String middleName = '',
     String platformCode = 'PU4012',
   }) async {
@@ -150,10 +145,8 @@ class RegisterService {
       throw Exception('Unable to generate authorization token');
     }
 
-    // ✅ Encrypt fields
     final encryptedEmail = encryptText(email);
 
-    // ✅ If number empty, send empty encryptedNumber (keeps API shape)
     final normalizedNumber = number.trim().isEmpty
         ? ""
         : normalizePhoneWithCallingCode(number, callingCode);
@@ -183,8 +176,6 @@ class RegisterService {
       "dob": dob,
       "gender": gender,
       "country": country,
-
-      // ✅ NEW
       "registrationType": registrationType, // EMAIL / PHONE
     };
 
@@ -215,6 +206,16 @@ class RegisterService {
     if (data['status'] != 'REGISTRATION_SUCCESSFUL') {
       throw Exception('Registration failed: ${data['status']}');
     }
+
+    // ✅ APPSFLYER EVENT (after successful registration)
+    await AppsFlyerService.instance.logEvent(
+      "af_complete_registration",
+      {
+        "af_registration_method": registrationType.toLowerCase(), // email / phone
+        "country_code": countryCode,
+        "platform_code": platformCode,
+      },
+    );
 
     final prefs = await SharedPreferences.getInstance();
     final userName = (data['userName'] ?? '').toString();

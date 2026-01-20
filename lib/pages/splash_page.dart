@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:appsflyer_sdk/appsflyer_sdk.dart';
 
 import '../components/gradient_background.dart';
 import '../services/update/update_service.dart';
@@ -41,24 +40,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   String _versionText = 'Version 1.0.0';
   bool _navigated = false;
 
-  // ✅ AppsFlyer
-  AppsflyerSdk? _afSdk;
-  bool _afStarted = false;
-
   @override
   void initState() {
     super.initState();
 
-    // Generate particles
     _generateParticles();
-
-    // ✅ Load real app version/build for UI (bottom text)
     _loadAppVersion();
 
-    // ✅ Start AppsFlyer early (Flutter way)
-    _initAppsFlyer();
-
-    // Pulse animation for outer glow
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -68,7 +56,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Smooth rotation animation
     _rotateController = AnimationController(
       duration: const Duration(milliseconds: 3000),
       vsync: this,
@@ -78,7 +65,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _rotateController, curve: Curves.linear),
     );
 
-    // Fade in animation
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -88,7 +74,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
     );
 
-    // Scale animation with bounce
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -101,7 +86,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       ),
     );
 
-    // Glow animation
     _glowController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -111,87 +95,15 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
-    // Particle animation
     _particleController = AnimationController(
       duration: const Duration(seconds: 3),
       vsync: this,
     )..repeat();
 
-    // Start animations
     _fadeController.forward();
     _scaleController.forward();
 
-    // ✅ After 2.5 seconds decide where to go (includes update check)
     Timer(const Duration(milliseconds: 2500), _decideNavigationWithUpdateGate);
-  }
-
-  /// ✅ Flutter equivalent of Android `AppsFlyerLib.init(...)` in Application.onCreate
-  Future<void> _initAppsFlyer() async {
-    try {
-      // Prefer .env; fallback to your key so app still works
-      final envKey = (dotenv.env['APPSFLYER_DEV_KEY'] ?? '').trim();
-      final devKey =
-          envKey.isNotEmpty ? envKey : 'ZrQNxQJYWCfqApE3GtJ5SF';
-
-      if (devKey.isEmpty) {
-        debugPrint('⚠️ [AF] Missing dev key. Add APPSFLYER_DEV_KEY in .env');
-        return;
-      }
-
-      final options = AppsFlyerOptions(
-        afDevKey: devKey,
-        appId: '', // iOS only (App Store ID). Keep empty for Android-only.
-        showDebug: true, // set false in release builds
-        manualStart: false, // set true if you want consent-based deferred start
-      );
-
-      final sdk = AppsflyerSdk(options);
-
-      // IMPORTANT: initSdk returns Future<void> (don’t assign it to variables)
-      await sdk.initSdk(
-        registerConversionDataCallback: true,
-        registerOnAppOpenAttributionCallback: true,
-        registerOnDeepLinkingCallback: true,
-      );
-
-      // Callback setters return void (don’t assign them)
-      sdk.onInstallConversionData((res) {
-        debugPrint('✅ [AF] Install conversion: $res');
-      });
-
-      sdk.onAppOpenAttribution((res) {
-        debugPrint('✅ [AF] App open attribution: $res');
-      });
-
-      sdk.onDeepLinking((res) {
-        debugPrint('✅ [AF] Deep link: $res');
-      });
-
-      sdk.startSDK();
-
-      _afSdk = sdk;
-      _afStarted = true;
-
-      debugPrint('✅ [AF] SDK started');
-
-      // ✅ Send a tiny event so you can verify in dashboard/debug logs
-      await _logAfEvent(
-        'af_splash_ready',
-        {'ts': DateTime.now().millisecondsSinceEpoch},
-      );
-    } catch (e) {
-      debugPrint('❌ [AF] init/start failed: $e');
-    }
-  }
-
-  Future<void> _logAfEvent(String name, Map<String, dynamic> values) async {
-    try {
-      if (!_afStarted || _afSdk == null) return;
-      await _afSdk!.logEvent(name, values);
-      debugPrint('✅ [AF] event sent: $name $values');
-    } catch (e) {
-      debugPrint('❌ [AF] event failed: $e');
-    }
   }
 
   void _generateParticles() {
@@ -221,16 +133,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     }
   }
 
-  /// ✅ Update check happens here BEFORE deciding Home/Login
   Future<void> _decideNavigationWithUpdateGate() async {
     if (!mounted || _navigated) return;
 
-    // Read current app version/build
     final pkg = await PackageInfo.fromPlatform();
     final currentBuild = int.tryParse(pkg.buildNumber) ?? 0;
     final currentVersion = pkg.version;
 
-    // Call the provided API
     final detailsUrl = dotenv.env['APK_VERSION_DETAILS_URL'] ??
         'https://api.nexxorra.com/file/apk/version/details';
 
@@ -239,15 +148,8 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
 
     if (!mounted || _navigated) return;
 
-    // If update required -> go UpdatePage (blocks login)
     if (result.needsUpdate && result.info != null) {
       _navigated = true;
-
-      // Optional event for tracking
-      await _logAfEvent('af_update_required', {
-        'current_build': currentBuild,
-        'current_version': currentVersion,
-      });
 
       Navigator.pushReplacement(
         context,
@@ -262,7 +164,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       return;
     }
 
-    // Otherwise -> normal flow
     await _decideNavigation();
   }
 
@@ -274,13 +175,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     final targetRoute = (isLoggedIn && gamerId.isNotEmpty)
         ? HomePage.routeName
         : LoginPage.routeName;
-
-    // Optional event for tracking
-    await _logAfEvent('af_splash_route', {
-      'route': targetRoute,
-      'is_logged_in': isLoggedIn,
-      'has_gamer_id': gamerId.isNotEmpty,
-    });
 
     if (!mounted || _navigated) return;
     _navigated = true;
@@ -305,7 +199,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
         backgroundColor: Colors.transparent,
         body: Stack(
           children: [
-            // Animated particles background
             AnimatedBuilder(
               animation: _particleController,
               builder: (context, child) {
@@ -318,15 +211,12 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                 );
               },
             ),
-
-            // Main content
             Center(
               child: ScaleTransition(
                 scale: _scaleAnimation,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Animated logo with multiple effects
                     AnimatedBuilder(
                       animation: Listenable.merge([
                         _pulseAnimation,
@@ -336,7 +226,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                         return Stack(
                           alignment: Alignment.center,
                           children: [
-                            // Outer pulsing glow
                             Container(
                               height: 200 * _pulseAnimation.value,
                               width: 200 * _pulseAnimation.value,
@@ -354,8 +243,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-
-                            // Middle glow ring
                             Container(
                               height: 160,
                               width: 160,
@@ -378,28 +265,24 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 ],
                               ),
                             ),
-
-                            // Rotating gradient border
                             RotationTransition(
                               turns: _rotateAnimation,
                               child: Container(
                                 height: 140,
                                 width: 140,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: SweepGradient(
                                     colors: [
-                                      const Color(0xFF00C9A7),
-                                      const Color(0xFF00A6FF),
-                                      const Color(0xFF00C9A7),
+                                      Color(0xFF00C9A7),
+                                      Color(0xFF00A6FF),
+                                      Color(0xFF00C9A7),
                                     ],
-                                    stops: const [0.0, 0.5, 1.0],
+                                    stops: [0.0, 0.5, 1.0],
                                   ),
                                 ),
                               ),
                             ),
-
-                            // Inner white border
                             Container(
                               height: 134,
                               width: 134,
@@ -412,8 +295,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-
-                            // Logo image with rotation
                             SizedBox(
                               height: 120,
                               width: 120,
@@ -439,8 +320,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-
-                            // Center dot accent
                             Container(
                               height: 8,
                               width: 8,
@@ -460,10 +339,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                         );
                       },
                     ),
-
                     const SizedBox(height: 48),
-
-                    // Animated text content
                     FadeTransition(
                       opacity: _fadeAnimation,
                       child: Column(
@@ -495,9 +371,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 16),
-
                           TweenAnimationBuilder<double>(
                             duration: const Duration(milliseconds: 1500),
                             tween: Tween(begin: 0.0, end: 1.0),
@@ -547,9 +421,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 48),
-
                           AnimatedBuilder(
                             animation: _glowController,
                             builder: (context, child) {
@@ -606,7 +478,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                 ),
               ),
             ),
-
             Positioned(
               bottom: 40,
               left: 0,
@@ -660,7 +531,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   }
 }
 
-// Particle class for background animation
 class Particle {
   double x;
   double y;
@@ -677,7 +547,6 @@ class Particle {
   });
 }
 
-// Custom painter for particles
 class ParticlePainter extends CustomPainter {
   final List<Particle> particles;
   final double animation;
