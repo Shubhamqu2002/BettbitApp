@@ -20,7 +20,6 @@ import '../services/auth_service.dart';
 import '../services/wallet_service.dart';
 import 'login_page.dart';
 
-// New pages
 import 'my_account_page.dart';
 import 'deposit_page.dart';
 import 'withdraw_page.dart';
@@ -29,7 +28,6 @@ import 'betting_records_page.dart';
 
 class HomePage extends StatefulWidget {
   static const String routeName = '/home';
-
   const HomePage({super.key});
 
   @override
@@ -37,6 +35,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // ✅ SAME KEYS USED IN VendorGamesSection
+  static const String kTotalBalanceKey = 'wallet_total_balance';
+  static const String kBalanceUpdatedAtKey = 'wallet_balance_updated_at_ms';
+  static const String kCurrencyKey = 'currency';
+
   final AuthService _authService = AuthService();
   final WalletService _walletService = WalletService();
 
@@ -46,18 +49,17 @@ class _HomePageState extends State<HomePage> {
   String? _gamerId;
   String? _userName;
 
-  // ✅ No cached balance anymore: show 0.00 instantly
   String _currency = 'INR';
   double _cashBalance = 0.00;
   double _promoBalance = 0.00;
   double _totalBalance = 0.00;
 
   Timer? _balanceTimer;
+  bool _isFetchingBalance = false;
 
   String _selectedPlatform = 'TORROSPIN';
   String _selectedCategory = 'ALL';
 
-  // ✅ refresh loader state
   bool _isRefreshing = false;
 
   @override
@@ -75,55 +77,66 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadUserAndBalance() async {
     final prefs = await SharedPreferences.getInstance();
-
     if (!mounted) return;
+
+    // ✅ read stored total balance instantly (if present)
+    final storedTotal = prefs.getDouble(kTotalBalanceKey) ?? 0.00;
 
     setState(() {
       _fullName = prefs.getString('full_name') ?? 'Player';
       _gamerId = prefs.getString('gamer_id');
       _userName = prefs.getString('user_name');
 
-      // ✅ Keep currency from session (auth stores it). If missing, default INR.
-      _currency = prefs.getString('currency') ?? 'INR';
+      _currency = prefs.getString(kCurrencyKey) ?? 'INR';
 
-      // ✅ Ensure we always show something (no cached balance)
       _cashBalance = 0.00;
       _promoBalance = 0.00;
-      _totalBalance = 0.00;
+      _totalBalance = storedTotal;
     });
 
-    // ✅ Only live refresh
     await _refreshBalance();
   }
 
   Future<void> _refreshBalance() async {
     final id = _gamerId;
-    if (id == null || id.isEmpty) {
-      // no gamer id → keep 0.00
-      return;
+    if (id == null || id.isEmpty) return;
+
+    if (_isFetchingBalance) return;
+    _isFetchingBalance = true;
+
+    try {
+      final balance = await _walletService.fetchBalance(id);
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // ✅ ALWAYS store (even if 0 from error fallback)
+      await prefs.setDouble(kTotalBalanceKey, balance.totalBalance);
+      await prefs.setString(kCurrencyKey, balance.currency);
+      await prefs.setInt(
+        kBalanceUpdatedAtKey,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _cashBalance = balance.cashBalance;
+        _promoBalance = balance.promoBalance;
+        _totalBalance = balance.totalBalance;
+        _currency = balance.currency;
+      });
+    } finally {
+      _isFetchingBalance = false;
     }
-
-    // ✅ WalletService.fetchBalance() already returns 0.00 on any issue
-    final balance = await _walletService.fetchBalance(id);
-
-    if (!mounted) return;
-    setState(() {
-      _cashBalance = balance.cashBalance;
-      _promoBalance = balance.promoBalance;
-      _totalBalance = balance.totalBalance;
-      _currency = balance.currency;
-    });
   }
 
-  // ✅ pull-to-refresh handler (UI stays same after done)
   Future<void> _onPullToRefresh() async {
     if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
 
     try {
-      await _loadUserAndBalance(); // loads user + refreshes balance
+      await _loadUserAndBalance();
     } catch (_) {
-      // keep silent to avoid changing UX
+      // silent
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
     }
@@ -132,12 +145,16 @@ class _HomePageState extends State<HomePage> {
   Future<void> _logout(BuildContext context) async {
     await _authService.logout();
     _balanceTimer?.cancel();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kTotalBalanceKey);
+    await prefs.remove(kBalanceUpdatedAtKey);
+
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, LoginPage.routeName);
   }
 
   void _openBalanceModal() {
-    // ✅ Always open with current values (0.00 safe)
     showDialog(
       context: context,
       builder: (context) => BalanceModal(
@@ -149,20 +166,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _openMenu() {
-    _scaffoldKey.currentState?.openDrawer();
-  }
+  void _openMenu() => _scaffoldKey.currentState?.openDrawer();
 
   void _onPlatformChanged(String newPlatform) {
-    setState(() {
-      _selectedPlatform = newPlatform.toUpperCase();
-    });
+    setState(() => _selectedPlatform = newPlatform.toUpperCase());
   }
 
   void _onCategoryChanged(String category) {
-    setState(() {
-      _selectedCategory = category;
-    });
+    setState(() => _selectedCategory = category);
   }
 
   @override
@@ -197,7 +208,8 @@ class _HomePageState extends State<HomePage> {
             final bool isSelected = _selectedCategory == tabName;
 
             return Padding(
-              padding: EdgeInsets.only(right: index == tabs.length - 1 ? 0 : 10),
+              padding:
+                  EdgeInsets.only(right: index == tabs.length - 1 ? 0 : 10),
               child: _CategoryTab(
                 label: tabName,
                 icon: tabIcon,
@@ -221,14 +233,6 @@ class _HomePageState extends State<HomePage> {
         return CasinoVendorsSection(platform: _selectedPlatform);
       case 'ALL':
         return AllVendorsSection(platform: _selectedPlatform);
-      case 'TOURNEY':
-      case 'SPORTS':
-      case 'BINGO':
-      case 'TABLE':
-        return VendorGamesSection(
-          category: _selectedCategory,
-          platform: _selectedPlatform,
-        );
       default:
         return VendorGamesSection(
           category: _selectedCategory,
@@ -239,47 +243,32 @@ class _HomePageState extends State<HomePage> {
 
   void _goToMyAccount() {
     Navigator.pop(context);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const MyAccountPage(),
-      ),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const MyAccountPage()));
   }
 
   void _goToDeposit() {
     Navigator.pop(context);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const DepositPage(),
-      ),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const DepositPage()));
   }
 
   void _goToWithdraw() {
     Navigator.pop(context);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const WithdrawPage(),
-      ),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const WithdrawPage()));
   }
 
   void _goToAccountRecords() {
     Navigator.pop(context);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const AccountRecordsPage(),
-      ),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const AccountRecordsPage()));
   }
 
   void _goToBettingRecords() {
     Navigator.pop(context);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const BettingRecordsPage(),
-      ),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const BettingRecordsPage()));
   }
 
   @override
@@ -290,7 +279,6 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: Colors.transparent,
         appBar: DashboardHeader(
           fullName: _fullName,
-          // ✅ no null now
           totalBalance: _totalBalance,
           currency: _currency,
           onBalanceTap: _openBalanceModal,
@@ -304,7 +292,6 @@ class _HomePageState extends State<HomePage> {
           child: HamburgerMenuSheet(
             fullName: _fullName,
             userName: _userName,
-            // ✅ no null now
             totalBalance: _totalBalance,
             currency: _currency,
             onWalletTap: () {
@@ -322,8 +309,6 @@ class _HomePageState extends State<HomePage> {
             },
           ),
         ),
-
-        // ✅ Pull-to-refresh + branded overlay loader
         body: Stack(
           children: [
             RefreshIndicator(
@@ -342,25 +327,16 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 20),
-
-                        // Banner section
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 16.0),
                           child: BannerCarousel(),
                         ),
-
                         const SizedBox(height: 20),
-
-                        // Category tabs
                         _buildCategoryTabs(),
-
                         const SizedBox(height: 16),
-
-                        // Vendor + games section
                         Expanded(
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 16.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
                             child: _buildVendorSection(),
                           ),
                         ),
@@ -370,18 +346,13 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-
-            // ✅ Branded Loader Overlay while refreshing
             if (_isRefreshing)
               Container(
                 color: Colors.black.withOpacity(0.25),
                 alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 22),
-                  child: BrandedLoader(
-                    brandName: 'Bettbit',
-                    size: 62,
-                  ),
+                child: const Padding(
+                  padding: EdgeInsets.only(top: 22),
+                  child: BrandedLoader(brandName: 'Bettbit', size: 62),
                 ),
               ),
           ],
@@ -433,15 +404,6 @@ class _CategoryTab extends StatelessWidget {
                   : Colors.white.withOpacity(0.1),
               width: 1,
             ),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: primaryAccent.withOpacity(0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : [],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

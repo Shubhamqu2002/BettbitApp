@@ -9,13 +9,34 @@ class OtpService {
   static const String _root = "https://communications.bettbit.com";
   static const String _geoUrl = "https://ipwho.is/";
 
-  // Cached values (avoid repeated geo calls)
-  static String? _cachedCallingCode; // +880
-  static String? _cachedCountryCode; // BD
+  static String? _cachedCallingCode;
+  static String? _cachedCountryCode;
 
-  /* -------------------------------------------------------
-   * GEO DETECTION (ipwho.is)
-   * ----------------------------------------------------- */
+  String _shortBody(String body, {int limit = 500}) {
+    if (body.length <= limit) return body;
+    return "${body.substring(0, limit)}...";
+  }
+
+  /// ✅ Extracts message from any error response (JSON or plain)
+  String _extractErrorMessage(String body, {String fallback = 'Something went wrong'}) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final msg = (decoded['message'] ?? '').toString().trim();
+        if (msg.isNotEmpty) return msg;
+
+        final err = (decoded['error'] ?? '').toString().trim();
+        if (err.isNotEmpty) return err;
+      }
+
+      final s = body.toString().trim();
+      if (s.isNotEmpty) return s;
+    } catch (_) {
+      final s = body.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return fallback;
+  }
 
   Future<void> _detectGeoOnce() async {
     if (_cachedCallingCode != null && _cachedCountryCode != null) {
@@ -37,10 +58,8 @@ class OtpService {
         final data = jsonDecode(res.body);
 
         if (data is Map && data["success"] == true) {
-          final countryCode =
-              (data["country_code"] ?? "").toString().trim();
-          final callingCodeRaw =
-              (data["calling_code"] ?? "").toString().trim();
+          final countryCode = (data["country_code"] ?? "").toString().trim();
+          final callingCodeRaw = (data["calling_code"] ?? "").toString().trim();
 
           if (countryCode.isNotEmpty && callingCodeRaw.isNotEmpty) {
             _cachedCountryCode = countryCode;
@@ -55,13 +74,12 @@ class OtpService {
           }
         }
 
-        debugPrint("⚠️ [GEO] Invalid response body: ${res.body}");
+        debugPrint("⚠️ [GEO] Invalid response body: ${_shortBody(res.body)}");
       }
     } catch (e) {
       debugPrint("❌ [GEO] Detection failed: $e");
     }
 
-    // fallback (only if API fails)
     _cachedCountryCode = "IN";
     _cachedCallingCode = "+91";
     debugPrint(
@@ -70,71 +88,44 @@ class OtpService {
     );
   }
 
-  /// Public getter for calling code (+880, +91, etc.)
   Future<String> getCallingCode() async {
     await _detectGeoOnce();
     return _cachedCallingCode!;
   }
 
-  /// Public getter for country code (BD, IN, etc.)
   Future<String> getCountryCode() async {
     await _detectGeoOnce();
     return _cachedCountryCode!;
   }
 
-  /* -------------------------------------------------------
-   * PHONE NORMALIZATION
-   * ----------------------------------------------------- */
-
-  /// Normalize number → +<callingCode><last 10 digits>
-  /// Example:
-  /// input: 01712345678
-  /// output: +8801712345678
   String normalizePhoneWithCode(String input, String callingCode) {
     var v = input.trim().replaceAll(' ', '').replaceAll('-', '');
 
-    // remove "+"
     if (v.startsWith('+')) v = v.substring(1);
-
-    // digits only
     v = v.replaceAll(RegExp(r'[^0-9]'), '');
 
-    // keep last 10 digits (your current backend expectation)
     if (v.length > 10) {
       v = v.substring(v.length - 10);
     }
 
     final cc = callingCode.startsWith("+") ? callingCode : "+$callingCode";
-
     final normalized = "$cc$v";
-    debugPrint("📞 [PHONE] Normalized → $normalized");
 
+    debugPrint("📞 [PHONE] Normalized → $normalized");
     return normalized;
   }
-
-  /* -------------------------------------------------------
-   * ENCRYPTED IDENTIFIER
-   * ----------------------------------------------------- */
 
   Future<String> buildEncryptedUserIdentifier(String mobileNumber) async {
     final cc = await getCallingCode();
     final normalized = normalizePhoneWithCode(mobileNumber, cc);
-
     final encrypted = encryptText(normalized);
 
     debugPrint("🔐 [OTP] Encrypted user_identifier → $encrypted");
-
     return encrypted;
   }
 
-  /* -------------------------------------------------------
-   * SEND OTP
-   * ----------------------------------------------------- */
-
   Future<void> sendLoginOtp({required String mobileNumber}) async {
-    final encryptedIdentifier =
-        await buildEncryptedUserIdentifier(mobileNumber);
-
+    final encryptedIdentifier = await buildEncryptedUserIdentifier(mobileNumber);
     final url = Uri.parse("$_root/webhook/otp");
 
     final payload = {
@@ -143,40 +134,40 @@ class OtpService {
       "user_identifier": encryptedIdentifier,
       "vendor_name": "TWILIO",
       "message_type": "OTP",
-      "message_body": "XXXXXX is your BETTBIT OTP. Please use it to proceed further. Enjoy  BETTBIT.",
+      "message_body":
+          "XXXXXX is your BETTBIT OTP. Please use it to proceed further. Enjoy  BETTBIT.",
       "channel": "SIM",
     };
 
     debugPrint("📦 [SEND OTP] Payload → $payload");
 
-    final res = await http.post(
-      url,
-      headers: {"content-type": "application/json"},
-      body: jsonEncode(payload),
-    );
+    http.Response res;
+    try {
+      res = await http.post(
+        url,
+        headers: {"content-type": "application/json"},
+        body: jsonEncode(payload),
+      );
+    } catch (_) {
+      throw Exception('Network error. Please try again.');
+    }
 
-    debugPrint(
-      "📡 [SEND OTP] Response → ${res.statusCode} | ${res.body}",
-    );
+    debugPrint("📡 [SEND OTP] Response → ${res.statusCode} | ${_shortBody(res.body)}");
 
     if (res.statusCode != 200) {
-      throw Exception(
-        "OTP send failed (${res.statusCode}): ${res.body}",
+      final msg = _extractErrorMessage(
+        res.body,
+        fallback: 'Failed to send OTP. Please try again.',
       );
+      throw Exception(msg);
     }
   }
-
-  /* -------------------------------------------------------
-   * VERIFY OTP
-   * ----------------------------------------------------- */
 
   Future<void> verifyLoginOtp({
     required String mobileNumber,
     required String otp,
   }) async {
-    final encryptedIdentifier =
-        await buildEncryptedUserIdentifier(mobileNumber);
-
+    final encryptedIdentifier = await buildEncryptedUserIdentifier(mobileNumber);
     final url = Uri.parse("$_root/webhook/verify-otp");
 
     final payload = {
@@ -188,20 +179,27 @@ class OtpService {
 
     debugPrint("📦 [VERIFY OTP] Payload → $payload");
 
-    final res = await http.post(
-      url,
-      headers: {"content-type": "application/json"},
-      body: jsonEncode(payload),
-    );
+    http.Response res;
+    try {
+      res = await http.post(
+        url,
+        headers: {"content-type": "application/json"},
+        body: jsonEncode(payload),
+      );
+    } catch (_) {
+      throw Exception('Network error. Please try again.');
+    }
 
     debugPrint(
-      "📡 [VERIFY OTP] Response → ${res.statusCode} | ${res.body}",
+      "📡 [VERIFY OTP] Response → ${res.statusCode} | ${_shortBody(res.body)}",
     );
 
     if (res.statusCode != 200) {
-      throw Exception(
-        "OTP verify failed (${res.statusCode}): ${res.body}",
+      final msg = _extractErrorMessage(
+        res.body,
+        fallback: 'OTP verification failed. Please try again.',
       );
+      throw Exception(msg);
     }
   }
 }

@@ -30,6 +30,18 @@ String get kVendorImageBaseUrl {
   return v;
 }
 
+/// ✅ Custom exception to show clean API messages in UI
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final String? rawBody;
+
+  ApiException(this.message, {this.statusCode, this.rawBody});
+
+  @override
+  String toString() => message; // IMPORTANT: no "Exception:" prefix
+}
+
 class VendorModel {
   final String imageUrl;
   final String vendorCode;
@@ -51,13 +63,8 @@ class VendorModel {
 
   /// Normalize image URL using base if it's a relative path like "assets/xyz.png"
   String get resolvedImageUrl {
-    if (imageUrl.startsWith('http')) {
-      return imageUrl;
-    }
-    // Ensure no duplicate slash
-    if (imageUrl.startsWith('/')) {
-      return '$kVendorImageBaseUrl${imageUrl.substring(1)}';
-    }
+    if (imageUrl.startsWith('http')) return imageUrl;
+    if (imageUrl.startsWith('/')) return '$kVendorImageBaseUrl${imageUrl.substring(1)}';
     return '$kVendorImageBaseUrl$imageUrl';
   }
 }
@@ -101,11 +108,7 @@ class GameModel {
     );
   }
 
-  String get displayImageUrl {
-    // Prefer square image if present
-    if (imageSquare.isNotEmpty) return imageSquare;
-    return imageLandscape;
-  }
+  String get displayImageUrl => imageSquare.isNotEmpty ? imageSquare : imageLandscape;
 }
 
 class PaginatedGames {
@@ -127,9 +130,7 @@ class PaginatedGames {
 
   factory PaginatedGames.fromJson(Map<String, dynamic> json) {
     final List<dynamic> rawList = (json['content'] as List?) ?? [];
-    final games = rawList
-        .map((e) => GameModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final games = rawList.map((e) => GameModel.fromJson(e as Map<String, dynamic>)).toList();
 
     return PaginatedGames(
       games: games,
@@ -158,8 +159,6 @@ class VendorGameService {
   String? _cachedCountryCode;
   DateTime? _cachedCountryAt;
 
-  /// Gets country code from https://api.country.is/
-  /// Caches for 10 minutes to avoid repeated calls.
   Future<String> _getCurrentCountryCode() async {
     final now = DateTime.now();
     final cachedOk = _cachedCountryCode != null &&
@@ -196,18 +195,67 @@ class VendorGameService {
       debugPrint('🌍 country.is error -> $e');
     }
 
-    // fallback
     debugPrint('🌍 country.is fallback -> IN');
     _cachedCountryCode = 'IN';
     _cachedCountryAt = now;
     return 'IN';
   }
 
-  /// Helper to read stored prefs safely
   Future<String> _getPrefOrFallback(String key, String fallback) async {
     final prefs = await SharedPreferences.getInstance();
     final v = (prefs.getString(key) ?? '').trim();
     return v.isEmpty ? fallback : v;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ Error parsing helpers
+  // ---------------------------------------------------------------------------
+
+  String _sanitizeApiMessage(String msg) {
+    final m = msg.trim();
+    if (m.isEmpty) return 'Something went wrong. Please try again.';
+    // You can add more cleanup rules here if needed
+    return m;
+  }
+
+  String _tryExtractMessageFromJson(dynamic decoded) {
+    if (decoded is Map) {
+      final msg = decoded['message']?.toString();
+      if (msg != null && msg.trim().isNotEmpty) return _sanitizeApiMessage(msg);
+
+      // some APIs use error/message/detail
+      final alt1 = decoded['error']?.toString();
+      if (alt1 != null && alt1.trim().isNotEmpty) return _sanitizeApiMessage(alt1);
+
+      final alt2 = decoded['detail']?.toString();
+      if (alt2 != null && alt2.trim().isNotEmpty) return _sanitizeApiMessage(alt2);
+    }
+    return 'Something went wrong. Please try again.';
+  }
+
+  ApiException _buildApiException(http.Response response, {String fallback = 'Request failed'}) {
+    final code = response.statusCode;
+    final body = response.body;
+
+    try {
+      final decoded = jsonDecode(body);
+      final msg = _tryExtractMessageFromJson(decoded);
+
+      // If API returns {"success": false, "message": "..."}
+      return ApiException(msg, statusCode: code, rawBody: body);
+    } catch (_) {
+      // Non-JSON body
+      final msg = body.trim().isNotEmpty ? body.trim() : '$fallback (HTTP $code)';
+      return ApiException(_sanitizeApiMessage(msg), statusCode: code, rawBody: body);
+    }
+  }
+
+  dynamic _decodeJsonSafe(String body) {
+    try {
+      return jsonDecode(body);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -216,9 +264,9 @@ class VendorGameService {
 
   /// GET /api/wallet/games/vendors/{category}/{platform}?countryCode=IN&page=0&size=100
   Future<List<VendorModel>> fetchVendors({
-    required String category, // ALL / HOT / SLOT / CASINO / ...
-    required String platform, // TORROSPIN / MASCOT (UPPERCASE)
-    String? countryCode, // auto-detect if null
+    required String category,
+    required String platform,
+    String? countryCode,
     int page = 0,
     int size = 100,
   }) async {
@@ -226,13 +274,8 @@ class VendorGameService {
         ? await _getCurrentCountryCode()
         : countryCode.trim();
 
-    debugPrint(
-      '🧩 fetchVendors -> category=$category platform=$platform countryCode=$resolvedCountry page=$page size=$size',
-    );
-
-    final uri = Uri.parse(
-      '$_apiBaseUrl/api/wallet/games/vendors/$category/$platform',
-    ).replace(queryParameters: {
+    final uri = Uri.parse('$_apiBaseUrl/api/wallet/games/vendors/$category/$platform')
+        .replace(queryParameters: {
       'countryCode': resolvedCountry,
       'page': '$page',
       'size': '$size',
@@ -240,17 +283,20 @@ class VendorGameService {
 
     final response = await http.get(uri);
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to load vendors: HTTP ${response.statusCode}',
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _buildApiException(
+        response,
+        fallback: 'Failed to load vendors',
       );
     }
 
-    final decoded = json.decode(response.body) as Map<String, dynamic>;
+    final decoded = _decodeJsonSafe(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException('Invalid vendors response from server.');
+    }
+
     final List<dynamic> rawList = (decoded['content'] as List?) ?? [];
-    return rawList
-        .map((e) => VendorModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return rawList.map((e) => VendorModel.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -259,20 +305,16 @@ class VendorGameService {
 
   /// GET /api/wallet/games/by-category-vendor/{category}/{vendorCode}/{platform}?countryCode=IN&page=0&size=24
   Future<PaginatedGames> fetchGames({
-    required String category, // ALL / HOT / SLOT / CASINO / ...
+    required String category,
     required String vendorCode,
-    required String platform, // TORROSPIN / MASCOT (UPPERCASE)
-    String? countryCode, // auto-detect if null
+    required String platform,
+    String? countryCode,
     int page = 0,
     int size = 24,
   }) async {
     final resolvedCountry = (countryCode == null || countryCode.trim().isEmpty)
         ? await _getCurrentCountryCode()
         : countryCode.trim();
-
-    debugPrint(
-      '🎮 fetchGames -> category=$category vendorCode=$vendorCode platform=$platform countryCode=$resolvedCountry page=$page size=$size',
-    );
 
     final uri = Uri.parse(
       '$_apiBaseUrl/api/wallet/games/by-category-vendor/$category/$vendorCode/$platform',
@@ -284,13 +326,18 @@ class VendorGameService {
 
     final response = await http.get(uri);
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to load games: HTTP ${response.statusCode}',
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _buildApiException(
+        response,
+        fallback: 'Failed to load games',
       );
     }
 
-    final decoded = json.decode(response.body) as Map<String, dynamic>;
+    final decoded = _decodeJsonSafe(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException('Invalid games response from server.');
+    }
+
     return PaginatedGames.fromJson(decoded);
   }
 
@@ -298,30 +345,17 @@ class VendorGameService {
   //  TORROSPIN GAME LAUNCH
   // ---------------------------------------------------------------------------
 
-  /// POST /torrospin/generatelink?countryCode=IN
-  ///
-  /// NOTE (as per your requirement):
-  /// - countryCode comes from SharedPreferences key: registered_country
-  /// - currency comes from SharedPreferences key: currency
   Future<String> generateTorrospinLaunchUrl({
     required String userName,
     required String gameCode,
   }) async {
-    final resolvedCountry =
-        await _getPrefOrFallback('registered_country', 'IN');
+    final resolvedCountry = await _getPrefOrFallback('registered_country', 'IN');
     final resolvedCurrency = await _getPrefOrFallback('currency', 'INR');
 
-    debugPrint(
-      '🚀 generateTorrospinLaunchUrl -> userName=$userName gameCode=$gameCode countryCode=$resolvedCountry currency=$resolvedCurrency',
-    );
-
     final uri = Uri.parse('$_apiBaseUrl/torrospin/generatelink')
-        .replace(queryParameters: {
-      'countryCode': resolvedCountry,
-    });
+        .replace(queryParameters: {'countryCode': resolvedCountry});
 
-    final token =
-        '${userName}_${DateTime.now().millisecondsSinceEpoch.toString()}';
+    final token = '${userName}_${DateTime.now().millisecondsSinceEpoch}';
 
     final payload = {
       "token": token,
@@ -335,31 +369,33 @@ class VendorGameService {
       "lang": "en",
     };
 
-    debugPrint('🚀 Torrospin payload -> ${jsonEncode(payload)}');
-
     final response = await http.post(
       uri,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode(payload),
     );
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to generate Torrospin game link: HTTP ${response.statusCode}',
+    // ✅ If launch fails, API returns message => show it
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _buildApiException(
+        response,
+        fallback: 'Failed to launch game',
       );
     }
 
-    final decoded = json.decode(response.body) as Map<String, dynamic>;
-    final success = decoded['success'] == true;
-    final url = decoded['url'] as String?;
-
-    if (!success || url == null || url.isEmpty) {
-      throw Exception('Torrospin launch link missing or unsuccessful.');
+    final decoded = _decodeJsonSafe(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException('Invalid launch response from server.');
     }
 
-    debugPrint('🚀 Torrospin launch URL -> $url');
+    final success = decoded['success'] == true;
+    final url = decoded['url'] as String?;
+    if (!success || url == null || url.trim().isEmpty) {
+      // Some backends return 200 but success=false with message
+      final msg = _tryExtractMessageFromJson(decoded);
+      throw ApiException(msg);
+    }
+
     return url;
   }
 
@@ -367,7 +403,6 @@ class VendorGameService {
   //  MASCOT GAME LAUNCH
   // ---------------------------------------------------------------------------
 
-  /// JSON-RPC POST to https://mascotservice.nexxorra.com
   Future<String> createMascotSession({
     required String userName,
     required String gameCode,
@@ -399,43 +434,54 @@ class VendorGameService {
       body: jsonEncode(payload),
     );
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to create Mascot session: HTTP ${response.statusCode}',
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _buildApiException(
+        response,
+        fallback: 'Failed to launch game',
       );
     }
 
-    final decoded = json.decode(response.body) as Map<String, dynamic>;
-    final result = decoded['result'] as Map<String, dynamic>?;
+    final decoded = _decodeJsonSafe(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException('Invalid Mascot response from server.');
+    }
 
+    // Mascot may return error in JSON-RPC format
+    if (decoded['error'] != null) {
+      final err = decoded['error'];
+      String msg = 'Failed to create session.';
+      if (err is Map) {
+        final m = err['message']?.toString();
+        if (m != null && m.trim().isNotEmpty) msg = _sanitizeApiMessage(m);
+      }
+      throw ApiException(msg);
+    }
+
+    final result = decoded['result'] as Map<String, dynamic>?;
     final sessionUrl = result?['SessionUrl'] as String?;
-    if (sessionUrl == null || sessionUrl.isEmpty) {
-      throw Exception('Mascot SessionUrl missing in response.');
+    if (sessionUrl == null || sessionUrl.trim().isEmpty) {
+      throw ApiException('Game session URL missing. Please try again.');
     }
 
     return sessionUrl;
   }
 
   // ---------------------------------------------------------------------------
-  //  Helper: Public IP (for Mascot PlayerIp)
+  //  Helper: Public IP
   // ---------------------------------------------------------------------------
 
   Future<String> _getPublicIp() async {
     try {
       final uri = Uri.parse('https://api.ipify.org?format=json');
       final response = await http.get(uri);
-
       if (response.statusCode == 200) {
-        final decoded = json.decode(response.body) as Map<String, dynamic>;
-        final ip = decoded['ip'] as String?;
-        if (ip != null && ip.isNotEmpty) {
-          return ip;
+        final decoded = _decodeJsonSafe(response.body);
+        if (decoded is Map<String, dynamic>) {
+          final ip = decoded['ip'] as String?;
+          if (ip != null && ip.isNotEmpty) return ip;
         }
       }
-    } catch (_) {
-      // ignore and fallback
-    }
-    // Fallback if anything fails
+    } catch (_) {}
     return '0.0.0.0';
   }
 }

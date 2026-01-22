@@ -8,7 +8,7 @@ import '../components/gradient_background.dart';
 import '../components/login/login_method_tabs.dart';
 import '../components/login/email_login_tab.dart';
 import '../components/login/phone_login_tab.dart';
-import '../components/login/forgot_password_modal.dart'; // ✅ NEW
+import '../components/login/forgot_password_modal.dart';
 import 'register_page.dart';
 import 'home_page.dart';
 import '../services/auth_service.dart';
@@ -30,10 +30,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   final TextEditingController _phoneController = TextEditingController();
 
-  final List<TextEditingController> _otpControllers = List.generate(
-    6,
-    (_) => TextEditingController(),
-  );
+  final List<TextEditingController> _otpControllers =
+      List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
 
   bool _isLoading = false;
@@ -112,7 +110,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // ✅ shows only clean message (no full JSON / no "Exception:")
+  String _cleanMessage(Object e) {
+    final raw = e.toString().trim();
+
+    // remove "Exception: " prefix if present
+    final cleaned = raw.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+
+    // if someone throws "Login failed: ...", keep it but still clean
+    return cleaned.isEmpty ? 'Something went wrong. Please try again.' : cleaned;
+  }
+
   void _showSnack(String message, {bool success = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -164,13 +176,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       _showSnack("Login successful", success: true);
       Navigator.pushReplacementNamed(context, HomePage.routeName);
     } catch (e) {
-      _showSnack('Login failed: $e');
+      _showSnack(_cleanMessage(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// ✅ OPEN FORGOT PASSWORD MODAL
   void _openForgotPasswordModal() {
     showGeneralDialog(
       context: context,
@@ -196,7 +207,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  /// ✅ PHONE STEP 1: Send OTP
   Future<void> _handleSendOtp() async {
     final phoneRaw = _phoneController.text.trim();
     if (phoneRaw.isEmpty) {
@@ -217,13 +227,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       _showSnack("OTP sent successfully", success: true);
     } catch (e) {
-      _showSnack("Failed to send OTP: $e");
+      _showSnack(_cleanMessage(e));
     } finally {
       if (mounted) setState(() => _isSendingOtp = false);
     }
   }
 
-  /// ✅ PHONE STEP 2+3: Verify OTP then Login (type=PHONE, no password)
   Future<void> _handleVerifyOtpAndLogin() async {
     final phoneRaw = _phoneController.text.trim();
     final otp = _getOtpValue();
@@ -254,7 +263,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       _showSnack("Login successful", success: true);
       Navigator.pushReplacementNamed(context, HomePage.routeName);
     } catch (e) {
-      _showSnack("Login failed: $e");
+      _showSnack(_cleanMessage(e));
     } finally {
       if (mounted) setState(() => _isVerifyingOtp = false);
     }
@@ -478,14 +487,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               ),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color:
-                                    const Color(0xFF00C9A7).withOpacity(0.3),
+                                color: const Color(0xFF00C9A7).withOpacity(0.3),
                                 width: 1.5,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color:
-                                      const Color(0xFF00C9A7).withOpacity(0.2),
+                                  color: const Color(0xFF00C9A7).withOpacity(0.2),
                                   blurRadius: 15,
                                   spreadRadius: 1,
                                 ),
@@ -502,16 +509,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             ),
                           ),
                           const SizedBox(height: 32),
-
                           _gradientOutline(
                             child: _glassCard(
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  22,
-                                  22,
-                                  22,
-                                  20,
-                                ),
+                                padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
                                 child: Column(
                                   children: [
                                     LoginMethodTabs(controller: _tabController),
@@ -526,15 +527,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                         children: [
                                           EmailLoginTab(
                                             emailController: _emailController,
-                                            passwordController:
-                                                _passwordController,
+                                            passwordController: _passwordController,
                                             obscurePassword: _obscurePassword,
                                             isLoading: _isLoading,
                                             onTogglePassword: () => setState(
-                                              () => _obscurePassword =
-                                                  !_obscurePassword,
+                                              () => _obscurePassword = !_obscurePassword,
                                             ),
-                                            onForgot: _openForgotPasswordModal, // ✅ UPDATED
+                                            onForgot: _openForgotPasswordModal,
                                             onLogin: _handleEmailLogin,
                                             onGoRegister: _goToRegister,
                                           ),
@@ -546,8 +545,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                             isSendingOtp: _isSendingOtp,
                                             isVerifyingOtp: _isVerifyingOtp,
                                             onSendOtp: _handleSendOtp,
-                                            onVerifyOtpAndLogin:
-                                                _handleVerifyOtpAndLogin,
+                                            onVerifyOtpAndLogin: _handleVerifyOtpAndLogin,
                                             onGoRegister: _goToRegister,
                                             onBackToPhone: () {
                                               setState(() => _otpSent = false);
@@ -594,8 +592,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 Icon(
                                   Icons.security_rounded,
                                   size: 16,
-                                  color: const Color(0xFF00C9A7)
-                                      .withOpacity(0.8),
+                                  color: const Color(0xFF00C9A7).withOpacity(0.8),
                                 ),
                                 const SizedBox(width: 8),
                                 Text(

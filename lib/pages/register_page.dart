@@ -1,4 +1,6 @@
 // lib/pages/register_page.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -27,10 +29,10 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage>
     with TickerProviderStateMixin {
   // -------------------------
-  // EMAIL TAB (existing flow)
+  // EMAIL TAB
   // -------------------------
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController(); // ✅ now optional
+  final TextEditingController _phoneController = TextEditingController(); // ✅ optional
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -49,14 +51,13 @@ class _RegisterPageState extends State<RegisterPage>
   // -------------------------
   final TextEditingController _pNameController = TextEditingController();
   final TextEditingController _pPhoneController = TextEditingController();
-  final TextEditingController _pEmailOptionalController =
-      TextEditingController();
+  final TextEditingController _pEmailOptionalController = TextEditingController();
 
   DateTime? _pSelectedDob;
   String? _pSelectedGender;
 
   // -------------------------
-  // Common
+  // Services + state
   // -------------------------
   final RegisterService _registerService = RegisterService();
   late final OtpRegisterService _otpRegisterService =
@@ -66,10 +67,8 @@ class _RegisterPageState extends State<RegisterPage>
   bool _isOtpLoading = false; // phone otp+register loading
   bool _obscurePassword = true;
 
-  // PHONE REGISTER FLOW STATE
   bool _showPhoneOtpUi = false;
 
-  // ✅ Phone registration hardcoded fields
   static const String _phoneRegPasswordHardcoded = "Temp@1234#PHONE";
   static const String _phoneRegEmailHardcoded = "noemail@demo.local";
 
@@ -80,10 +79,10 @@ class _RegisterPageState extends State<RegisterPage>
 
   late TabController _tabController;
 
-  // ✅ GEO info (country + country code + calling code)
+  // GEO info
   String? _countryCode;
   String? _country;
-  String? _callingCode; // ✅ +91 / +880 etc
+  String? _callingCode;
   bool _isGeoLoading = false;
   String? _geoError;
 
@@ -97,28 +96,28 @@ class _RegisterPageState extends State<RegisterPage>
     _tabController = TabController(length: 2, vsync: this);
 
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 950),
       vsync: this,
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+        curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
       ),
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.15),
+      begin: const Offset(0, 0.10),
       end: Offset.zero,
     ).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.1, 1.0, curve: Curves.easeOutCubic),
       ),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.9, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
@@ -130,7 +129,6 @@ class _RegisterPageState extends State<RegisterPage>
     _fetchGeoInfo();
     _logoUrlFuture = _brandService.fetchLogoUrl();
 
-    // ✅ when switching tabs reset OTP UI
     _tabController.addListener(() {
       if (_tabController.index == 0) {
         setState(() => _showPhoneOtpUi = false);
@@ -144,17 +142,12 @@ class _RegisterPageState extends State<RegisterPage>
       _geoError = null;
     });
 
-    debugPrint('🧭 [REGISTER_PAGE] Fetching GEO (country + code + calling_code)...');
-
     try {
       final data = await _registerService.fetchGeoInfo();
 
       final cc = (data['country_code'] ?? '').toString().trim();
       final c = (data['country'] ?? '').toString().trim();
       final calling = (data['calling_code'] ?? '').toString().trim();
-
-      debugPrint(
-          '✅ [REGISTER_PAGE] GEO => country_code=$cc | country=$c | calling_code=$calling');
 
       setState(() {
         _countryCode = cc.isNotEmpty ? cc : null;
@@ -163,8 +156,6 @@ class _RegisterPageState extends State<RegisterPage>
         _isGeoLoading = false;
       });
     } catch (e) {
-      debugPrint('❌ [REGISTER_PAGE] GEO error: $e');
-
       setState(() {
         _isGeoLoading = false;
         _geoError = 'Could not auto-detect location.';
@@ -191,12 +182,59 @@ class _RegisterPageState extends State<RegisterPage>
     super.dispose();
   }
 
+  // ✅ Cleaner error message (avoid big JSON in UI)
+  String _cleanApiMessage(Object e) {
+    String raw = e.toString().trim();
+    raw = raw.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+
+    final int jsonStart = raw.indexOf('{');
+    if (jsonStart != -1) {
+      final jsonPart = raw.substring(jsonStart).trim();
+      try {
+        final decoded = jsonDecode(jsonPart);
+        if (decoded is Map) {
+          final msg = (decoded['message'] ?? '').toString().trim();
+          if (msg.isNotEmpty) return msg;
+
+          final err = (decoded['error'] ?? '').toString().trim();
+          if (err.isNotEmpty) return err;
+
+          final detail = (decoded['details'] ?? decoded['detail'] ?? '')
+              .toString()
+              .trim();
+          if (detail.isNotEmpty) return detail;
+        }
+      } catch (_) {}
+    }
+
+    return raw.isNotEmpty ? raw : 'Something went wrong. Please try again.';
+  }
+
   void _showSnack(String message, {bool success = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle_rounded : Icons.error_rounded,
+              color: success ? const Color(0xFF00C9A7) : Colors.orangeAccent,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: success ? const Color(0xFF00C9A7) : Colors.black87,
+        backgroundColor: Colors.black87,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
@@ -275,10 +313,13 @@ class _RegisterPageState extends State<RegisterPage>
     if (picked != null) setState(() => _pSelectedDob = picked);
   }
 
-  // ✅ EMAIL register (phone optional)
+  // ✅ EMAIL register
   Future<void> _handleRegisterEmail() async {
+    // ✅ prevent multiple taps
+    if (_isLoading) return;
+
     final name = _nameController.text.trim();
-    final phone = _phoneController.text.trim(); // ✅ optional
+    final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
@@ -297,7 +338,6 @@ class _RegisterPageState extends State<RegisterPage>
         hasError = true;
       }
 
-      // ✅ phone is optional now
       if (phone.isNotEmpty && !RegExp(r'^[0-9]{10}$').hasMatch(phone)) {
         _phoneError = 'Please enter a valid 10-digit phone number.';
         hasError = true;
@@ -345,16 +385,12 @@ class _RegisterPageState extends State<RegisterPage>
     final firstName = parts.isNotEmpty ? parts.first : name;
     final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
 
-    debugPrint(
-      "📤 [EMAIL_REGISTER] registrationType=EMAIL | phoneProvided=${phone.isNotEmpty} | callingCode=$callingCode",
-    );
-
     setState(() => _isLoading = true);
 
     try {
       final registerData = await _registerService.registerGamer(
         email: email,
-        number: phone, // ✅ can be ""
+        number: phone,
         password: password,
         firstName: firstName,
         lastName: lastName,
@@ -362,8 +398,8 @@ class _RegisterPageState extends State<RegisterPage>
         country: country,
         dob: _formatDob(_selectedDob!),
         gender: _selectedGender!,
-        registrationType: "EMAIL", // ✅ NEW
-        callingCode: callingCode, // ✅ NEW (for optional phone)
+        registrationType: "EMAIL",
+        callingCode: callingCode,
       );
 
       final gamerId = registerData['gamerId']?.toString() ?? '';
@@ -378,14 +414,17 @@ class _RegisterPageState extends State<RegisterPage>
         throw Exception('Unexpected status: $status');
       }
     } catch (e) {
-      _showSnack('Registration failed: $e');
+      _showSnack(_cleanApiMessage(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ✅ PHONE TAB: Step-1 Send OTP, then show OTP UI
+  // ✅ PHONE TAB: Step-1 Send OTP
   Future<void> _handlePhoneRegister_SendOtp() async {
+    // ✅ prevent multiple taps
+    if (_isOtpLoading) return;
+
     final fullName = _pNameController.text.trim();
     final phone = _pPhoneController.text.trim();
     final emailOpt = _pEmailOptionalController.text.trim();
@@ -396,7 +435,7 @@ class _RegisterPageState extends State<RegisterPage>
       return _showSnack('Please enter a valid 10-digit phone number.');
     }
     if (emailOpt.isNotEmpty && !_isValidEmail(emailOpt)) {
-      return _showSnack('Optional email is not valid.');
+      return _showSnack('Email is not valid.');
     }
     if (_pSelectedDob == null) return _showSnack('Please select date of birth.');
     if (_pSelectedGender == null || _pSelectedGender!.isEmpty) {
@@ -406,21 +445,21 @@ class _RegisterPageState extends State<RegisterPage>
     setState(() => _isOtpLoading = true);
 
     try {
-      debugPrint("➡️ [PHONE_REGISTER] Sending REGISTER OTP...");
       await _otpRegisterService.sendRegisterOtp(phone: phone);
-
       _showSnack('OTP sent on device ✅', success: true);
-
       setState(() => _showPhoneOtpUi = true);
     } catch (e) {
-      _showSnack('OTP send failed: $e');
+      _showSnack(_cleanApiMessage(e));
     } finally {
       if (mounted) setState(() => _isOtpLoading = false);
     }
   }
 
-  // ✅ PHONE TAB: Step-2 Verify OTP -> Step-3 Main register API
+  // ✅ PHONE TAB: Step-2 Verify OTP -> Step-3 Register
   Future<void> _handlePhoneRegister_VerifyOtpAndRegister(String otp) async {
+    // ✅ prevent multiple taps
+    if (_isOtpLoading) return;
+
     final name = _pNameController.text.trim();
     final phone = _pPhoneController.text.trim();
     final emailOpt = _pEmailOptionalController.text.trim();
@@ -440,28 +479,20 @@ class _RegisterPageState extends State<RegisterPage>
     setState(() => _isOtpLoading = true);
 
     try {
-      debugPrint("➡️ [PHONE_REGISTER] Verifying REGISTER OTP...");
       await _otpRegisterService.verifyRegisterOtp(phone: phone, otp: otp);
 
-      debugPrint("✅ [PHONE_REGISTER] OTP verified");
-      debugPrint(
-        "📤 [PHONE_REGISTER] Now calling main register API "
-        "registrationType=PHONE | emailToSend=$emailToSend (userEntered=${emailOpt.isNotEmpty}) "
-        "| callingCode=$callingCode",
-      );
-
       final registerData = await _registerService.registerGamer(
-        email: emailToSend, // ✅ hardcoded if empty
+        email: emailToSend,
         number: phone,
-        password: _phoneRegPasswordHardcoded, // ✅ hardcoded
+        password: _phoneRegPasswordHardcoded,
         firstName: firstName,
         lastName: lastName,
         countryCode: countryCode,
         country: country,
         dob: _formatDob(_pSelectedDob!),
         gender: _pSelectedGender!,
-        registrationType: "PHONE", // ✅ NEW
-        callingCode: callingCode, // ✅ NEW
+        registrationType: "PHONE",
+        callingCode: callingCode,
       );
 
       final gamerId = registerData['gamerId']?.toString() ?? '';
@@ -476,7 +507,7 @@ class _RegisterPageState extends State<RegisterPage>
         throw Exception('Unexpected status: $status');
       }
     } catch (e) {
-      _showSnack('Phone registration failed: $e');
+      _showSnack(_cleanApiMessage(e));
     } finally {
       if (mounted) setState(() => _isOtpLoading = false);
     }
@@ -485,22 +516,22 @@ class _RegisterPageState extends State<RegisterPage>
   Widget _logoWidget() {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00C9A7).withOpacity(0.3),
-            blurRadius: 40,
+            color: const Color(0xFF00C9A7).withOpacity(0.28),
+            blurRadius: 34,
             spreadRadius: 8,
           ),
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 20,
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 18,
             offset: const Offset(0, 10),
           ),
         ],
       ),
       child: SizedBox(
-        height: 80,
+        height: 96,
         child: FutureBuilder<String?>(
           future: _logoUrlFuture,
           builder: (context, snap) {
@@ -551,18 +582,18 @@ class _RegisterPageState extends State<RegisterPage>
           borderRadius: BorderRadius.circular(999),
           gradient: LinearGradient(
             colors: [
-              const Color(0xFF00C9A7).withOpacity(0.2),
-              Colors.black.withOpacity(0.3),
+              const Color(0xFF00C9A7).withOpacity(0.20),
+              Colors.black.withOpacity(0.30),
             ],
           ),
           border: Border.all(
-            color: const Color(0xFF00C9A7).withOpacity(0.4),
+            color: const Color(0xFF00C9A7).withOpacity(0.40),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF00C9A7).withOpacity(0.15),
-              blurRadius: 15,
+              color: const Color(0xFF00C9A7).withOpacity(0.14),
+              blurRadius: 14,
               spreadRadius: 2,
             ),
           ],
@@ -575,8 +606,8 @@ class _RegisterPageState extends State<RegisterPage>
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFF00C9A7).withOpacity(0.3),
-                    const Color(0xFF00C9A7).withOpacity(0.1),
+                    const Color(0xFF00C9A7).withOpacity(0.30),
+                    const Color(0xFF00C9A7).withOpacity(0.10),
                   ],
                 ),
                 shape: BoxShape.circle,
@@ -627,6 +658,11 @@ class _RegisterPageState extends State<RegisterPage>
                 ? 'Detecting country...'
                 : 'Country detection unavailable';
 
+    final h = MediaQuery.of(context).size.height;
+    final topGap = h < 750 ? 6.0 : 10.0;
+    final afterLogoGap = h < 750 ? 16.0 : 20.0;
+    final titleGap = h < 750 ? 6.0 : 8.0;
+
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -635,11 +671,10 @@ class _RegisterPageState extends State<RegisterPage>
           backgroundColor: Colors.transparent,
           elevation: 0,
           automaticallyImplyLeading: false,
-          toolbarHeight: 70,
+          toolbarHeight: 66,
           flexibleSpace: SafeArea(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
                   ScaleTransition(
@@ -692,8 +727,10 @@ class _RegisterPageState extends State<RegisterPage>
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20.0,
+                vertical: 6,
+              ),
               child: FadeTransition(
                 opacity: _fadeAnimation,
                 child: SlideTransition(
@@ -701,20 +738,21 @@ class _RegisterPageState extends State<RegisterPage>
                   child: ScaleTransition(
                     scale: _scaleAnimation,
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 440),
+                      constraints: const BoxConstraints(maxWidth: 460),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 10),
+                          SizedBox(height: topGap),
                           Center(
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 10),
+                                horizontal: 18,
+                                vertical: 6,
+                              ),
                               child: _logoWidget(),
                             ),
                           ),
-                          const SizedBox(height: 24),
-
+                          SizedBox(height: afterLogoGap),
                           Center(
                             child: Column(
                               children: [
@@ -723,49 +761,48 @@ class _RegisterPageState extends State<RegisterPage>
                                       const LinearGradient(
                                     colors: [
                                       Color(0xFF00C9A7),
-                                      Color(0xFF00FFC6)
+                                      Color(0xFF00FFC6),
                                     ],
                                   ).createShader(bounds),
                                   child: const Text(
                                     'Create Account',
                                     style: TextStyle(
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.bold,
+                                      fontSize: 36,
+                                      fontWeight: FontWeight.w900,
                                       color: Colors.white,
-                                      letterSpacing: 0.5,
+                                      letterSpacing: 0.6,
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 8),
+                                SizedBox(height: titleGap),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 6),
+                                      horizontal: 16, vertical: 7),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.05),
+                                    color: Colors.white.withOpacity(0.06),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
-                                        color: Colors.white.withOpacity(0.1)),
+                                        color: Colors.white.withOpacity(0.12)),
                                   ),
                                   child: Text(
                                     'Join us and start your journey',
                                     style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.white.withOpacity(0.75),
+                                      fontSize: 13.5,
+                                      color: Colors.white.withOpacity(0.78),
                                       letterSpacing: 0.4,
-                                      fontWeight: FontWeight.w500,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-
-                          const SizedBox(height: 28),
-                          RegisterMethodTabs(controller: _tabController),
                           const SizedBox(height: 18),
+                          RegisterMethodTabs(controller: _tabController),
+                          const SizedBox(height: 14),
 
                           Container(
-                            padding: const EdgeInsets.all(26),
+                            padding: const EdgeInsets.all(22),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
@@ -796,12 +833,11 @@ class _RegisterPageState extends State<RegisterPage>
                               ],
                             ),
                             child: SizedBox(
-                              height: 560,
+                              height: h < 750 ? 540 : 560,
                               child: TabBarView(
                                 controller: _tabController,
                                 physics: const BouncingScrollPhysics(),
                                 children: [
-                                  // EMAIL TAB
                                   EmailRegisterTab(
                                     nameController: _nameController,
                                     phoneController: _phoneController,
@@ -809,8 +845,8 @@ class _RegisterPageState extends State<RegisterPage>
                                     passwordController: _passwordController,
                                     isLoading: _isLoading,
                                     obscurePassword: _obscurePassword,
-                                    onTogglePassword: () => setState(
-                                        () => _obscurePassword = !_obscurePassword),
+                                    onTogglePassword: () => setState(() =>
+                                        _obscurePassword = !_obscurePassword),
                                     selectedDob: _selectedDob,
                                     selectedGender: _selectedGender,
                                     onPickDob: _pickDobForEmailTab,
@@ -827,7 +863,6 @@ class _RegisterPageState extends State<RegisterPage>
                                     onRegister: _handleRegisterEmail,
                                   ),
 
-                                  // PHONE TAB (Form OR OTP UI in same area)
                                   _showPhoneOtpUi
                                       ? OtpVerifyPanel(
                                           title: "Verify OTP",
@@ -847,22 +882,25 @@ class _RegisterPageState extends State<RegisterPage>
                                           selectedDob: _pSelectedDob,
                                           selectedGender: _pSelectedGender,
                                           onPickDob: _pickDobForPhoneTab,
-                                          onGenderChanged: (v) =>
-                                              setState(() => _pSelectedGender = v),
-                                          onRegister: _handlePhoneRegister_SendOtp,
+                                          onGenderChanged: (v) => setState(
+                                              () => _pSelectedGender = v),
+                                          onRegister:
+                                              _handlePhoneRegister_SendOtp,
                                           detectedCountryWidget:
                                               _detectedCountryChip(detectedCountryText),
+                                          isLoading: _isOtpLoading, // ✅ NEW
                                         ),
                                 ],
                               ),
                             ),
                           ),
 
-                          const SizedBox(height: 26),
+                          const SizedBox(height: 16),
+
                           Center(
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 14),
+                                  horizontal: 22, vertical: 12),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
@@ -872,8 +910,9 @@ class _RegisterPageState extends State<RegisterPage>
                                 ),
                                 borderRadius: BorderRadius.circular(22),
                                 border: Border.all(
-                                    color: Colors.white.withOpacity(0.15),
-                                    width: 1.5),
+                                  color: Colors.white.withOpacity(0.15),
+                                  width: 1.5,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withOpacity(0.2),
@@ -891,7 +930,7 @@ class _RegisterPageState extends State<RegisterPage>
                                       fontSize: 14,
                                       color: Colors.white.withOpacity(0.85),
                                       letterSpacing: 0.3,
-                                      fontWeight: FontWeight.w500,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                   GestureDetector(
@@ -932,7 +971,7 @@ class _RegisterPageState extends State<RegisterPage>
                             ),
                           ),
 
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 10),
                         ],
                       ),
                     ),

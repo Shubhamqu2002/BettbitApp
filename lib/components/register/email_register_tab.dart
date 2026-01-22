@@ -108,13 +108,16 @@ class EmailRegisterTab extends StatelessWidget {
           _errorText(emailError),
           const SizedBox(height: 18),
 
-          // Password
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 'Set Password',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, letterSpacing: 0.3),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  letterSpacing: 0.3,
+                ),
               ),
               const SizedBox(height: 6),
               TextField(
@@ -124,28 +127,49 @@ class EmailRegisterTab extends StatelessWidget {
                   filled: true,
                   fillColor: Colors.white.withOpacity(0.08),
                   hintText: 'Create a strong password',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
-                  prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20, color: Colors.white70),
+                  hintStyle: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 14,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.lock_outline_rounded,
+                    size: 20,
+                    color: Colors.white70,
+                  ),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                       size: 20,
                       color: Colors.white70,
                     ),
-                    onPressed: onTogglePassword,
+                    onPressed: isLoading
+                        ? null
+                        : onTogglePassword, // ✅ block while loading
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                    borderSide: BorderSide(
+                      color: Colors.white.withOpacity(0.2),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                    borderSide: BorderSide(
+                      color: Colors.white.withOpacity(0.2),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF00C9A7), width: 2),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF00C9A7),
+                      width: 2,
+                    ),
                   ),
                 ),
                 style: const TextStyle(color: Colors.white),
@@ -155,7 +179,6 @@ class EmailRegisterTab extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
-          // DOB + Gender row
           Row(
             children: [
               Expanded(
@@ -164,25 +187,40 @@ class EmailRegisterTab extends StatelessWidget {
                   children: [
                     const Text(
                       'Date of Birth',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, letterSpacing: 0.3),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     GestureDetector(
-                      onTap: onPickDob,
+                      onTap: isLoading ? null : onPickDob, // ✅
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white.withOpacity(0.2)),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.2),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.calendar_today_outlined, size: 18, color: Colors.white70),
+                            const Icon(
+                              Icons.calendar_today_outlined,
+                              size: 18,
+                              color: Colors.white70,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                selectedDob == null ? 'Select DOB' : _formatDob(selectedDob!),
+                                selectedDob == null
+                                    ? 'Select DOB'
+                                    : _formatDob(selectedDob!),
                                 style: TextStyle(
                                   color: selectedDob == null
                                       ? Colors.white.withOpacity(0.4)
@@ -206,14 +244,20 @@ class EmailRegisterTab extends StatelessWidget {
                   children: [
                     const Text(
                       'Gender',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, letterSpacing: 0.3),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white.withOpacity(0.2)),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.2),
+                        ),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: DropdownButtonHideUnderline(
@@ -221,17 +265,35 @@ class EmailRegisterTab extends StatelessWidget {
                           value: selectedGender,
                           hint: Text(
                             'Select gender',
-                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 14,
+                            ),
                           ),
                           dropdownColor: const Color(0xFF05070A),
-                          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white70),
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white70,
+                          ),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
                           items: const [
-                            DropdownMenuItem(value: 'male', child: Text('Male')),
-                            DropdownMenuItem(value: 'female', child: Text('Female')),
-                            DropdownMenuItem(value: 'transgender', child: Text('Transgender')),
+                            DropdownMenuItem(
+                              value: 'male',
+                              child: Text('Male'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'female',
+                              child: Text('Female'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'transgender',
+                              child: Text('Transgender'),
+                            ),
                           ],
-                          onChanged: onGenderChanged,
+                          onChanged: isLoading ? null : onGenderChanged, // ✅
                         ),
                       ),
                     ),
@@ -247,17 +309,26 @@ class EmailRegisterTab extends StatelessWidget {
           detectedCountryWidget,
           const SizedBox(height: 22),
 
+          // ✅ show progress + block multiple clicks
           PrimaryButton(
-            label: 'Register',
-            onPressed: onRegister,
+            label: isLoading ? 'Registering...' : 'Register',
+            onPressed: () {
+              if (!isLoading) {
+                onRegister();
+              }
+            },
             isLoading: isLoading,
           ),
+
           const SizedBox(height: 18),
 
           Text.rich(
             TextSpan(
               text: 'By registering, you agree to our ',
-              style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6)),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.6),
+              ),
               children: const [
                 TextSpan(
                   text: 'Terms & Conditions',
