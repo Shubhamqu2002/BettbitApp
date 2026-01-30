@@ -27,7 +27,6 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
   final TextEditingController _phoneController = TextEditingController();
 
   final List<TextEditingController> _otpControllers =
@@ -36,21 +35,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   bool _isLoading = false;
   bool _obscurePassword = true;
-
   bool _isSendingOtp = false;
   bool _isVerifyingOtp = false;
   bool _otpSent = false;
 
   late AnimationController _animationController;
+  late AnimationController _glowController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
 
   late TabController _tabController;
 
   final AuthService _authService = AuthService();
   final OtpService _otpService = OtpService();
-
   final BrandService _brandService = BrandService();
   Future<String?>? _logoUrlFuture;
 
@@ -62,9 +61,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _tabController.addListener(() => setState(() {}));
 
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
+
+    _glowController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat(reverse: true);
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
@@ -74,18 +78,22 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
 
     _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
       ),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 0.8, curve: Curves.easeOutBack),
       ),
+    );
+
+    _glowAnimation = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
     _animationController.forward();
@@ -107,17 +115,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     _tabController.dispose();
     _animationController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
-  // ✅ shows only clean message (no full JSON / no "Exception:")
   String _cleanMessage(Object e) {
     final raw = e.toString().trim();
-
-    // remove "Exception: " prefix if present
     final cleaned = raw.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
-
-    // if someone throws "Login failed: ...", keep it but still clean
     return cleaned.isEmpty ? 'Something went wrong. Please try again.' : cleaned;
   }
 
@@ -249,14 +253,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     setState(() => _isVerifyingOtp = true);
 
     try {
-      // 1) Verify OTP
       await _otpService.verifyLoginOtp(mobileNumber: phoneRaw, otp: otp);
 
-      // 2) Build normalized phone using dynamic calling code
       final cc = await _otpService.getCallingCode();
       final normalized = _otpService.normalizePhoneWithCode(phoneRaw, cc);
 
-      // 3) Login (PHONE, NO password)
       await _authService.login(emailOrPhone: normalized, type: "PHONE");
 
       if (!mounted) return;
@@ -272,349 +273,295 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   void _goToRegister() => Navigator.pushNamed(context, RegisterPage.routeName);
 
   Widget _logoWidget() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00C9A7).withOpacity(0.4),
-            blurRadius: 45,
-            spreadRadius: 10,
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 25,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        height: 85,
-        child: FutureBuilder<String?>(
-          future: _logoUrlFuture,
-          builder: (context, snap) {
-            final logoUrl =
-                (snap.connectionState == ConnectionState.done &&
-                        snap.hasData &&
-                        (snap.data ?? '').toString().trim().isNotEmpty)
-                    ? snap.data!.trim()
-                    : '';
+    return FutureBuilder<String?>(
+      future: _logoUrlFuture,
+      builder: (context, snap) {
+        final logoUrl = (snap.connectionState == ConnectionState.done &&
+                snap.hasData &&
+                (snap.data ?? '').toString().trim().isNotEmpty)
+            ? snap.data!.trim()
+            : '';
 
-            if (logoUrl.isEmpty) {
-              return Image.asset('assets/images/logo.png', fit: BoxFit.contain);
-            }
-
-            return SvgPicture.network(
-              logoUrl,
-              fit: BoxFit.contain,
-              placeholderBuilder: (_) => Center(
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
+        return AnimatedBuilder(
+          animation: _glowAnimation,
+          builder: (context, child) {
+            return Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00C9A7).withOpacity(0.4 * _glowAnimation.value),
+                    blurRadius: 60 * _glowAnimation.value,
+                    spreadRadius: 20 * _glowAnimation.value,
                   ),
-                  child: const SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Color(0xFF00C9A7),
-                      ),
-                    ),
+                  BoxShadow(
+                    color: Colors.cyanAccent.withOpacity(0.2 * _glowAnimation.value),
+                    blurRadius: 80 * _glowAnimation.value,
+                    spreadRadius: 10 * _glowAnimation.value,
+                  ),
+                ],
+              ),
+              child: Container(
+                width: 120,
+                height: 120,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF00C9A7).withOpacity(0.3),
+                      const Color(0xFF00C9A7).withOpacity(0.1),
+                      Colors.transparent,
+                    ],
+                  ),
+                  border: Border.all(
+                    width: 2,
+                    color: const Color(0xFF00C9A7).withOpacity(0.5),
                   ),
                 ),
+                child: logoUrl.isEmpty
+                    ? Image.asset('assets/images/logo.png', fit: BoxFit.contain)
+                    : SvgPicture.network(
+                        logoUrl,
+                        fit: BoxFit.contain,
+                        placeholderBuilder: (_) => const Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFF00C9A7),
+                            ),
+                          ),
+                        ),
+                      ),
               ),
             );
           },
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _glassCard({required Widget child}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(32),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withOpacity(0.12),
-                Colors.white.withOpacity(0.05),
-              ],
-            ),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.22),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.6),
-                blurRadius: 40,
-                offset: const Offset(0, 20),
-                spreadRadius: -5,
+  Widget _buildFloatingOrb(double top, double left, double size, Color color) {
+    return Positioned(
+      top: top,
+      left: left,
+      child: AnimatedBuilder(
+        animation: _glowController,
+        builder: (context, child) {
+          return Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  color.withOpacity(0.3 * _glowAnimation.value),
+                  color.withOpacity(0.1 * _glowAnimation.value),
+                  Colors.transparent,
+                ],
               ),
-              BoxShadow(
-                color: const Color(0xFF00C9A7).withOpacity(0.25),
-                blurRadius: 65,
-                spreadRadius: -12,
-              ),
-            ],
-          ),
-          child: child,
-        ),
+            ),
+          );
+        },
       ),
-    );
-  }
-
-  Widget _gradientOutline({required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.all(1.5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(34),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF00C9A7).withOpacity(0.4),
-            Colors.white.withOpacity(0.25),
-            const Color(0xFF00C9A7).withOpacity(0.15),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00C9A7).withOpacity(0.3),
-            blurRadius: 25,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: child,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: SlideTransition(
-                  position: _slideAnimation,
-                  child: ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 450),
-                      child: Column(
-                        children: [
-                          Center(
-                            child: Column(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 22,
-                                    vertical: 14,
+        body: Stack(
+          children: [
+            // Floating orbs for depth
+            _buildFloatingOrb(
+              screenHeight * 0.1,
+              screenWidth * 0.1,
+              200,
+              const Color(0xFF00C9A7),
+            ),
+            _buildFloatingOrb(
+              screenHeight * 0.6,
+              screenWidth * 0.7,
+              150,
+              Colors.cyanAccent,
+            ),
+            _buildFloatingOrb(
+              screenHeight * 0.3,
+              screenWidth * 0.8,
+              100,
+              const Color(0xFF00C9A7),
+            ),
+
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: ScaleTransition(
+                        scale: _scaleAnimation,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 500),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // Logo with glow effect
+                              _logoWidget(),
+                              
+                              const SizedBox(height: 40),
+
+                              // Welcome text with gradient
+                              ShaderMask(
+                                shaderCallback: (bounds) => const LinearGradient(
+                                  colors: [
+                                    Color(0xFF00C9A7),
+                                    Colors.cyanAccent,
+                                    Color(0xFF00C9A7),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ).createShader(bounds),
+                                child: const Text(
+                                  'Welcome Back',
+                                  style: TextStyle(
+                                    fontSize: 42,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -1,
+                                    color: Colors.white,
+                                    height: 1.1,
                                   ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(22),
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        Colors.white.withOpacity(0.1),
-                                        Colors.white.withOpacity(0.03),
-                                      ],
-                                    ),
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.18),
-                                      width: 1.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.2),
-                                        blurRadius: 20,
-                                        offset: const Offset(0, 8),
-                                      ),
-                                    ],
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              // Subtitle
+                              Text(
+                                'Sign in to continue your journey',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white.withOpacity(0.6),
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.5,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+
+                              const SizedBox(height: 50),
+
+                              // Tab selector with modern design
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(25),
+                                  color: Colors.black.withOpacity(0.3),
+                                  border: Border.all(
+                                    color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                    width: 1,
                                   ),
-                                  child: _logoWidget(),
                                 ),
-                                const SizedBox(height: 26),
-                              ],
-                            ),
-                          ),
-                          ShaderMask(
-                            shaderCallback: (bounds) => const LinearGradient(
-                              colors: [
-                                Colors.white,
-                                Color(0xFF00C9A7),
-                                Colors.white,
-                              ],
-                            ).createShader(bounds),
-                            child: const Text(
-                              'Welcome Back 👋',
-                              style: TextStyle(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                                color: Colors.white,
+                                child: LoginMethodTabs(controller: _tabController),
                               ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  const Color(0xFF00C9A7).withOpacity(0.2),
-                                  const Color(0xFF00C9A7).withOpacity(0.05),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: const Color(0xFF00C9A7).withOpacity(0.3),
-                                width: 1.5,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF00C9A7).withOpacity(0.2),
-                                  blurRadius: 15,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                            child: const Text(
-                              'Play and Win',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.5,
-                                color: Color(0xFF00C9A7),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-                          _gradientOutline(
-                            child: _glassCard(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-                                child: Column(
+
+                              const SizedBox(height: 35),
+
+                              // Tab content without card wrapper
+                              SizedBox(
+                                height: _tabController.index == 0
+                                    ? 410
+                                    : (_otpSent ? 420 : 320),
+                                child: TabBarView(
+                                  controller: _tabController,
+                                  physics: const BouncingScrollPhysics(),
                                   children: [
-                                    LoginMethodTabs(controller: _tabController),
-                                    const SizedBox(height: 20),
-                                    SizedBox(
-                                      height: _tabController.index == 0
-                                          ? 410
-                                          : (_otpSent ? 420 : 320),
-                                      child: TabBarView(
-                                        controller: _tabController,
-                                        physics: const BouncingScrollPhysics(),
-                                        children: [
-                                          EmailLoginTab(
-                                            emailController: _emailController,
-                                            passwordController: _passwordController,
-                                            obscurePassword: _obscurePassword,
-                                            isLoading: _isLoading,
-                                            onTogglePassword: () => setState(
-                                              () => _obscurePassword = !_obscurePassword,
-                                            ),
-                                            onForgot: _openForgotPasswordModal,
-                                            onLogin: _handleEmailLogin,
-                                            onGoRegister: _goToRegister,
-                                          ),
-                                          PhoneLoginTab(
-                                            phoneController: _phoneController,
-                                            otpSent: _otpSent,
-                                            otpControllers: _otpControllers,
-                                            otpFocusNodes: _otpFocusNodes,
-                                            isSendingOtp: _isSendingOtp,
-                                            isVerifyingOtp: _isVerifyingOtp,
-                                            onSendOtp: _handleSendOtp,
-                                            onVerifyOtpAndLogin: _handleVerifyOtpAndLogin,
-                                            onGoRegister: _goToRegister,
-                                            onBackToPhone: () {
-                                              setState(() => _otpSent = false);
-                                              _clearOtp();
-                                            },
-                                          ),
-                                        ],
+                                    EmailLoginTab(
+                                      emailController: _emailController,
+                                      passwordController: _passwordController,
+                                      obscurePassword: _obscurePassword,
+                                      isLoading: _isLoading,
+                                      onTogglePassword: () => setState(
+                                        () => _obscurePassword = !_obscurePassword,
+                                      ),
+                                      onForgot: _openForgotPasswordModal,
+                                      onLogin: _handleEmailLogin,
+                                      onGoRegister: _goToRegister,
+                                    ),
+                                    PhoneLoginTab(
+                                      phoneController: _phoneController,
+                                      otpSent: _otpSent,
+                                      otpControllers: _otpControllers,
+                                      otpFocusNodes: _otpFocusNodes,
+                                      isSendingOtp: _isSendingOtp,
+                                      isVerifyingOtp: _isVerifyingOtp,
+                                      onSendOtp: _handleSendOtp,
+                                      onVerifyOtpAndLogin: _handleVerifyOtpAndLogin,
+                                      onGoRegister: _goToRegister,
+                                      onBackToPhone: () {
+                                        setState(() => _otpSent = false);
+                                        _clearOtp();
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 30),
+
+                              // Security badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                  color: Colors.black.withOpacity(0.2),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.verified_user_rounded,
+                                      size: 18,
+                                      color: const Color(0xFF00C9A7).withOpacity(0.9),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Secure & Encrypted',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.white.withOpacity(0.7),
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.3,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                          const SizedBox(height: 24),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.white.withOpacity(0.06),
-                                  Colors.white.withOpacity(0.02),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.12),
-                                width: 1,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.15),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.security_rounded,
-                                  size: 16,
-                                  color: const Color(0xFF00C9A7).withOpacity(0.8),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Secure Login',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white.withOpacity(0.7),
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

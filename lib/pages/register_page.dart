@@ -1,5 +1,6 @@
 // lib/pages/register_page.dart
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,12 +9,12 @@ import '../components/gradient_background.dart';
 import '../services/register_services.dart';
 import '../services/brand_service.dart';
 
-// ✅ NEW register tabs/components
+// Register tabs/components
 import '../components/register/register_method_tabs.dart';
 import '../components/register/email_register_tab.dart';
 import '../components/register/phone_register_tab.dart';
 
-// ✅ NEW OTP UI + services for phone register flow
+// OTP UI + services for phone register flow
 import '../components/register/otp_verify_panel.dart';
 import '../services/otp_register_service.dart';
 
@@ -28,11 +29,9 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage>
     with TickerProviderStateMixin {
-  // -------------------------
   // EMAIL TAB
-  // -------------------------
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController(); // ✅ optional
+  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -46,9 +45,7 @@ class _RegisterPageState extends State<RegisterPage>
   String? _dobError;
   String? _genderError;
 
-  // -------------------------
   // PHONE TAB (OTP flow)
-  // -------------------------
   final TextEditingController _pNameController = TextEditingController();
   final TextEditingController _pPhoneController = TextEditingController();
   final TextEditingController _pEmailOptionalController = TextEditingController();
@@ -56,26 +53,25 @@ class _RegisterPageState extends State<RegisterPage>
   DateTime? _pSelectedDob;
   String? _pSelectedGender;
 
-  // -------------------------
   // Services + state
-  // -------------------------
   final RegisterService _registerService = RegisterService();
   late final OtpRegisterService _otpRegisterService =
       OtpRegisterService(_registerService);
 
-  bool _isLoading = false; // email register loading
-  bool _isOtpLoading = false; // phone otp+register loading
+  bool _isLoading = false;
+  bool _isOtpLoading = false;
   bool _obscurePassword = true;
-
   bool _showPhoneOtpUi = false;
 
   static const String _phoneRegPasswordHardcoded = "Temp@1234#PHONE";
   static const String _phoneRegEmailHardcoded = "noemail@demo.local";
 
   late AnimationController _animationController;
+  late AnimationController _glowController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
 
   late TabController _tabController;
 
@@ -96,32 +92,41 @@ class _RegisterPageState extends State<RegisterPage>
     _tabController = TabController(length: 2, vsync: this);
 
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 950),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
+
+    _glowController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat(reverse: true);
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
       ),
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.10),
+      begin: const Offset(0, 0.3),
       end: Offset.zero,
     ).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.1, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
       ),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+        curve: const Interval(0.0, 0.8, curve: Curves.easeOutBack),
       ),
+    );
+
+    _glowAnimation = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
     _animationController.forward();
@@ -179,10 +184,10 @@ class _RegisterPageState extends State<RegisterPage>
 
     _tabController.dispose();
     _animationController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
-  // ✅ Cleaner error message (avoid big JSON in UI)
   String _cleanApiMessage(Object e) {
     String raw = e.toString().trim();
     raw = raw.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
@@ -313,9 +318,7 @@ class _RegisterPageState extends State<RegisterPage>
     if (picked != null) setState(() => _pSelectedDob = picked);
   }
 
-  // ✅ EMAIL register
   Future<void> _handleRegisterEmail() async {
-    // ✅ prevent multiple taps
     if (_isLoading) return;
 
     final name = _nameController.text.trim();
@@ -420,9 +423,7 @@ class _RegisterPageState extends State<RegisterPage>
     }
   }
 
-  // ✅ PHONE TAB: Step-1 Send OTP
   Future<void> _handlePhoneRegister_SendOtp() async {
-    // ✅ prevent multiple taps
     if (_isOtpLoading) return;
 
     final fullName = _pNameController.text.trim();
@@ -455,9 +456,7 @@ class _RegisterPageState extends State<RegisterPage>
     }
   }
 
-  // ✅ PHONE TAB: Step-2 Verify OTP -> Step-3 Register
   Future<void> _handlePhoneRegister_VerifyOtpAndRegister(String otp) async {
-    // ✅ prevent multiple taps
     if (_isOtpLoading) return;
 
     final name = _pNameController.text.trim();
@@ -514,207 +513,443 @@ class _RegisterPageState extends State<RegisterPage>
   }
 
   Widget _logoWidget() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00C9A7).withOpacity(0.28),
-            blurRadius: 34,
-            spreadRadius: 8,
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        height: 96,
-        child: FutureBuilder<String?>(
-          future: _logoUrlFuture,
-          builder: (context, snap) {
-            final logoUrl = (snap.connectionState == ConnectionState.done &&
-                    snap.hasData &&
-                    (snap.data ?? '').toString().trim().isNotEmpty)
-                ? snap.data!.trim()
-                : '';
+    return FutureBuilder<String?>(
+      future: _logoUrlFuture,
+      builder: (context, snap) {
+        final logoUrl = (snap.connectionState == ConnectionState.done &&
+                snap.hasData &&
+                (snap.data ?? '').toString().trim().isNotEmpty)
+            ? snap.data!.trim()
+            : '';
 
-            if (logoUrl.isEmpty) {
-              return Image.asset('assets/images/logo.png', fit: BoxFit.contain);
-            }
-
-            return SvgPicture.network(
-              logoUrl,
-              fit: BoxFit.contain,
-              placeholderBuilder: (_) => Center(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
+        return AnimatedBuilder(
+          animation: _glowAnimation,
+          builder: (context, child) {
+            return Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00C9A7)
+                        .withOpacity(0.4 * _glowAnimation.value),
+                    blurRadius: 60 * _glowAnimation.value,
+                    spreadRadius: 20 * _glowAnimation.value,
                   ),
-                  child: const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFF00C9A7)),
-                    ),
+                  BoxShadow(
+                    color: Colors.cyanAccent
+                        .withOpacity(0.2 * _glowAnimation.value),
+                    blurRadius: 80 * _glowAnimation.value,
+                    spreadRadius: 10 * _glowAnimation.value,
+                  ),
+                ],
+              ),
+              child: Container(
+                width: 100,
+                height: 100,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF00C9A7).withOpacity(0.3),
+                      const Color(0xFF00C9A7).withOpacity(0.1),
+                      Colors.transparent,
+                    ],
+                  ),
+                  border: Border.all(
+                    width: 2,
+                    color: const Color(0xFF00C9A7).withOpacity(0.5),
                   ),
                 ),
+                child: logoUrl.isEmpty
+                    ? Image.asset('assets/images/logo.png', fit: BoxFit.contain)
+                    : SvgPicture.network(
+                        logoUrl,
+                        fit: BoxFit.contain,
+                        placeholderBuilder: (_) => const Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFF00C9A7),
+                            ),
+                          ),
+                        ),
+                      ),
               ),
             );
           },
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _detectedCountryChip(String detectedCountryText) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFF00C9A7).withOpacity(0.20),
-              Colors.black.withOpacity(0.30),
-            ],
-          ),
-          border: Border.all(
-            color: const Color(0xFF00C9A7).withOpacity(0.40),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF00C9A7).withOpacity(0.14),
-              blurRadius: 14,
-              spreadRadius: 2,
-            ),
-          ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withOpacity(0.3),
+        border: Border.all(
+          color: const Color(0xFF00C9A7).withOpacity(0.3),
+          width: 1,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF00C9A7).withOpacity(0.30),
-                    const Color(0xFF00C9A7).withOpacity(0.10),
-                  ],
-                ),
-                shape: BoxShape.circle,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.public_outlined,
+            size: 14,
+            color: const Color(0xFF00C9A7).withOpacity(0.8),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              detectedCountryText,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withOpacity(0.7),
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.3,
               ),
-              child: const Icon(
-                Icons.public_outlined,
-                size: 15,
-                color: Color(0xFF00C9A7),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (_geoError != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Icon(
+                Icons.info_outline_rounded,
+                size: 13,
+                color: Colors.orangeAccent.withOpacity(0.9),
               ),
             ),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Text(
-                detectedCountryText,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.3,
-                ),
-                overflow: TextOverflow.ellipsis,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingOrb(double top, double left, double size, Color color) {
+    return Positioned(
+      top: top,
+      left: left,
+      child: AnimatedBuilder(
+        animation: _glowController,
+        builder: (context, child) {
+          return Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  color.withOpacity(0.3 * _glowAnimation.value),
+                  color.withOpacity(0.1 * _glowAnimation.value),
+                  Colors.transparent,
+                ],
               ),
             ),
-            if (_geoError != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Icon(
-                  Icons.info_outline_rounded,
-                  size: 15,
-                  color: Colors.orangeAccent.withOpacity(0.9),
-                ),
-              ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final detectedCountryText =
-        (_country != null &&
-                _country!.isNotEmpty &&
-                _countryCode != null &&
-                _countryCode!.isNotEmpty)
-            ? 'Detected: $_country ($_countryCode) • Calling: ${_callingCode ?? ""}'
-            : _isGeoLoading
-                ? 'Detecting country...'
-                : 'Country detection unavailable';
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
 
-    final h = MediaQuery.of(context).size.height;
-    final topGap = h < 750 ? 6.0 : 10.0;
-    final afterLogoGap = h < 750 ? 16.0 : 20.0;
-    final titleGap = h < 750 ? 6.0 : 8.0;
+    final detectedCountryText = (_country != null &&
+            _country!.isNotEmpty &&
+            _countryCode != null &&
+            _countryCode!.isNotEmpty)
+        ? 'Detected: $_country ($_countryCode) • ${_callingCode ?? ""}'
+        : _isGeoLoading
+            ? 'Detecting country...'
+            : 'Country detection unavailable';
 
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          toolbarHeight: 66,
-          flexibleSpace: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
+        body: Stack(
+          children: [
+            // Floating orbs for depth
+            _buildFloatingOrb(
+              screenHeight * 0.15,
+              screenWidth * 0.1,
+              180,
+              const Color(0xFF00C9A7),
+            ),
+            _buildFloatingOrb(
+              screenHeight * 0.65,
+              screenWidth * 0.75,
+              140,
+              Colors.cyanAccent,
+            ),
+            _buildFloatingOrb(
+              screenHeight * 0.35,
+              screenWidth * 0.85,
+              100,
+              const Color(0xFF00C9A7),
+            ),
+
+            SafeArea(
+              child: Column(
                 children: [
-                  ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.white.withOpacity(0.15),
-                              Colors.white.withOpacity(0.05),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.25),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                  // Custom Back Button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    child: Row(
+                      children: [
+                        ScaleTransition(
+                          scale: _scaleAnimation,
+                          child: GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.white.withOpacity(0.15),
+                                    Colors.white.withOpacity(0.05),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                  width: 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
                             ),
-                            BoxShadow(
-                              color: const Color(0xFF00C9A7).withOpacity(0.1),
-                              blurRadius: 15,
-                              spreadRadius: 2,
-                            ),
-                          ],
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.arrow_back_ios_new_rounded,
-                          size: 18,
-                          color: Colors.white,
+                      ],
+                    ),
+                  ),
+
+                  // Main scrollable content
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 20,
+                        ),
+                        child: FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: ScaleTransition(
+                              scale: _scaleAnimation,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 500),
+                                child: Column(
+                                  children: [
+                                    // Logo with glow effect
+                                    _logoWidget(),
+
+                                    const SizedBox(height: 30),
+
+                                    // Title with gradient
+                                    ShaderMask(
+                                      shaderCallback: (bounds) =>
+                                          const LinearGradient(
+                                        colors: [
+                                          Color(0xFF00C9A7),
+                                          Colors.cyanAccent,
+                                          Color(0xFF00C9A7),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ).createShader(bounds),
+                                      child: const Text(
+                                        'Create Account',
+                                        style: TextStyle(
+                                          fontSize: 38,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.5,
+                                          color: Colors.white,
+                                          height: 1.1,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 8),
+
+                                    // Subtitle
+                                    Text(
+                                      'Join us and start your journey',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: Colors.white.withOpacity(0.6),
+                                        fontWeight: FontWeight.w500,
+                                        letterSpacing: 0.5,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+
+                                    const SizedBox(height: 35),
+
+                                    // Tab selector with modern design
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(25),
+                                        color: Colors.black.withOpacity(0.3),
+                                        border: Border.all(
+                                          color: const Color(0xFF00C9A7)
+                                              .withOpacity(0.3),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: RegisterMethodTabs(
+                                          controller: _tabController),
+                                    ),
+
+                                    const SizedBox(height: 25),
+
+                                    // Country detection chip
+                                    _detectedCountryChip(detectedCountryText),
+
+                                    const SizedBox(height: 25),
+
+                                    // Tab content without card wrapper
+                                    SizedBox(
+                                      height: screenHeight < 750 ? 540 : 560,
+                                      child: TabBarView(
+                                        controller: _tabController,
+                                        physics: const BouncingScrollPhysics(),
+                                        children: [
+                                          EmailRegisterTab(
+                                            nameController: _nameController,
+                                            phoneController: _phoneController,
+                                            emailController: _emailController,
+                                            passwordController:
+                                                _passwordController,
+                                            isLoading: _isLoading,
+                                            obscurePassword: _obscurePassword,
+                                            onTogglePassword: () => setState(() =>
+                                                _obscurePassword =
+                                                    !_obscurePassword),
+                                            selectedDob: _selectedDob,
+                                            selectedGender: _selectedGender,
+                                            onPickDob: _pickDobForEmailTab,
+                                            onGenderChanged: (v) =>
+                                                setState(() => _selectedGender = v),
+                                            nameError: _nameError,
+                                            phoneError: _phoneError,
+                                            emailError: _emailError,
+                                            passwordError: _passwordError,
+                                            dobError: _dobError,
+                                            genderError: _genderError,
+                                            detectedCountryWidget: const SizedBox
+                                                .shrink(), // Not needed here anymore
+                                            onRegister: _handleRegisterEmail,
+                                          ),
+                                          _showPhoneOtpUi
+                                              ? OtpVerifyPanel(
+                                                  title: "Verify OTP",
+                                                  subtitle:
+                                                      "Enter the 6-digit OTP sent on device",
+                                                  isLoading: _isOtpLoading,
+                                                  onBack: () => setState(() =>
+                                                      _showPhoneOtpUi = false),
+                                                  onCompleted:
+                                                      _handlePhoneRegister_VerifyOtpAndRegister,
+                                                )
+                                              : PhoneRegisterTab(
+                                                  fullNameController:
+                                                      _pNameController,
+                                                  phoneController:
+                                                      _pPhoneController,
+                                                  emailOptionalController:
+                                                      _pEmailOptionalController,
+                                                  selectedDob: _pSelectedDob,
+                                                  selectedGender: _pSelectedGender,
+                                                  onPickDob: _pickDobForPhoneTab,
+                                                  onGenderChanged: (v) => setState(
+                                                      () => _pSelectedGender = v),
+                                                  onRegister:
+                                                      _handlePhoneRegister_SendOtp,
+                                                  detectedCountryWidget:
+                                                      const SizedBox.shrink(),
+                                                  isLoading: _isOtpLoading,
+                                                ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 25),
+
+                                    // Already have account section
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 12,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: const Color(0xFF00C9A7)
+                                              .withOpacity(0.3),
+                                          width: 1,
+                                        ),
+                                        color: Colors.black.withOpacity(0.2),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'Already have an account? ',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.white.withOpacity(0.7),
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          GestureDetector(
+                                            onTap: () => Navigator.pop(context),
+                                            child: Text(
+                                              'Login',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(0xFF00C9A7)
+                                                    .withOpacity(0.9),
+                                                letterSpacing: 0.3,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -722,264 +957,7 @@ class _RegisterPageState extends State<RegisterPage>
                 ],
               ),
             ),
-          ),
-        ),
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 20.0,
-                vertical: 6,
-              ),
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: SlideTransition(
-                  position: _slideAnimation,
-                  child: ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 460),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: topGap),
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 18,
-                                vertical: 6,
-                              ),
-                              child: _logoWidget(),
-                            ),
-                          ),
-                          SizedBox(height: afterLogoGap),
-                          Center(
-                            child: Column(
-                              children: [
-                                ShaderMask(
-                                  shaderCallback: (bounds) =>
-                                      const LinearGradient(
-                                    colors: [
-                                      Color(0xFF00C9A7),
-                                      Color(0xFF00FFC6),
-                                    ],
-                                  ).createShader(bounds),
-                                  child: const Text(
-                                    'Create Account',
-                                    style: TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.white,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(height: titleGap),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 7),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.06),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: Colors.white.withOpacity(0.12)),
-                                  ),
-                                  child: Text(
-                                    'Join us and start your journey',
-                                    style: TextStyle(
-                                      fontSize: 13.5,
-                                      color: Colors.white.withOpacity(0.78),
-                                      letterSpacing: 0.4,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          RegisterMethodTabs(controller: _tabController),
-                          const SizedBox(height: 14),
-
-                          Container(
-                            padding: const EdgeInsets.all(22),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white.withOpacity(0.08),
-                                  Colors.white.withOpacity(0.02),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(30),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.25),
-                                width: 1.5,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.5),
-                                  blurRadius: 40,
-                                  offset: const Offset(0, 20),
-                                  spreadRadius: -5,
-                                ),
-                                BoxShadow(
-                                  color:
-                                      const Color(0xFF00C9A7).withOpacity(0.2),
-                                  blurRadius: 60,
-                                  spreadRadius: -10,
-                                ),
-                              ],
-                            ),
-                            child: SizedBox(
-                              height: h < 750 ? 540 : 560,
-                              child: TabBarView(
-                                controller: _tabController,
-                                physics: const BouncingScrollPhysics(),
-                                children: [
-                                  EmailRegisterTab(
-                                    nameController: _nameController,
-                                    phoneController: _phoneController,
-                                    emailController: _emailController,
-                                    passwordController: _passwordController,
-                                    isLoading: _isLoading,
-                                    obscurePassword: _obscurePassword,
-                                    onTogglePassword: () => setState(() =>
-                                        _obscurePassword = !_obscurePassword),
-                                    selectedDob: _selectedDob,
-                                    selectedGender: _selectedGender,
-                                    onPickDob: _pickDobForEmailTab,
-                                    onGenderChanged: (v) =>
-                                        setState(() => _selectedGender = v),
-                                    nameError: _nameError,
-                                    phoneError: _phoneError,
-                                    emailError: _emailError,
-                                    passwordError: _passwordError,
-                                    dobError: _dobError,
-                                    genderError: _genderError,
-                                    detectedCountryWidget:
-                                        _detectedCountryChip(detectedCountryText),
-                                    onRegister: _handleRegisterEmail,
-                                  ),
-
-                                  _showPhoneOtpUi
-                                      ? OtpVerifyPanel(
-                                          title: "Verify OTP",
-                                          subtitle:
-                                              "Enter the 6-digit OTP sent on device",
-                                          isLoading: _isOtpLoading,
-                                          onBack: () => setState(
-                                              () => _showPhoneOtpUi = false),
-                                          onCompleted:
-                                              _handlePhoneRegister_VerifyOtpAndRegister,
-                                        )
-                                      : PhoneRegisterTab(
-                                          fullNameController: _pNameController,
-                                          phoneController: _pPhoneController,
-                                          emailOptionalController:
-                                              _pEmailOptionalController,
-                                          selectedDob: _pSelectedDob,
-                                          selectedGender: _pSelectedGender,
-                                          onPickDob: _pickDobForPhoneTab,
-                                          onGenderChanged: (v) => setState(
-                                              () => _pSelectedGender = v),
-                                          onRegister:
-                                              _handlePhoneRegister_SendOtp,
-                                          detectedCountryWidget:
-                                              _detectedCountryChip(detectedCountryText),
-                                          isLoading: _isOtpLoading, // ✅ NEW
-                                        ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 22, vertical: 12),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.white.withOpacity(0.08),
-                                    Colors.white.withOpacity(0.03),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(22),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.15),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Already have an account? ',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.white.withOpacity(0.85),
-                                      letterSpacing: 0.3,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () => Navigator.pop(context),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 14, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          colors: [
-                                            Color(0xFF00C9A7),
-                                            Color(0xFF00B897)
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(10),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF00C9A7)
-                                                .withOpacity(0.5),
-                                            blurRadius: 12,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ],
-                                      ),
-                                      child: const Text(
-                                        'Login',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                          letterSpacing: 0.6,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 10),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          ],
         ),
       ),
     );

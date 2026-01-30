@@ -1,3 +1,4 @@
+// lib/services/deposit/gpt_deposit_service.dart
 import 'dart:convert';
 import 'package:demo_gamer/util/crypto_utils.dart';
 import 'package:http/http.dart' as http;
@@ -42,7 +43,7 @@ class GptDepositService {
   /// INV-YEAR-TIMESTAMP (INV hardcoded, year dynamic, timestamp = DateTime.now().millisecondsSinceEpoch)
   String _buildInvoiceReference() {
     final year = DateTime.now().year; // e.g., 2026
-    final ts = DateTime.now().millisecondsSinceEpoch; // e.g., 946553635353
+    final ts = DateTime.now().millisecondsSinceEpoch;
     return "INV-$year-$ts";
   }
 
@@ -54,7 +55,8 @@ class GptDepositService {
   ///   statusCode: int,
   ///   message: string,
   ///   payment_url: string,
-  ///   reference: string
+  ///   reference: string,          // gateway reference (ex: arkF1IUY...)
+  ///   merchant_reference: string  // INV-YYYY-TS (THIS is what you pass to ftd api)
   /// }
   Future<Map<String, dynamic>> initiateInvoice({
     required num amount,
@@ -63,20 +65,17 @@ class GptDepositService {
     required String callbackUrl,
     required String webhookUrl,
     required String ipAddress,
-    required String firstName,
-    required String lastName,
-    required String email,
-    required String phone,
     required String country,
   }) async {
     try {
       final username = await _getSavedUsername();
 
-      // ✅ Generate reference: INV-YEAR-TIMESTAMP
-      final reference = _buildInvoiceReference();
+      // ✅ Generate merchant_reference: INV-YEAR-TIMESTAMP
+      final localMerchantReference = _buildInvoiceReference();
 
-      // ✅ Encrypt email like AuthService
-      final encryptedEmail = encryptText(email);
+      // ✅ Kept import usage safe (not sent now). You can remove if not needed.
+      // ignore: unused_local_variable
+      final encryptedEmail = encryptText("");
 
       final payload = {
         "amount": amount,
@@ -87,14 +86,11 @@ class GptDepositService {
         "ip_address": ipAddress,
         "username": username,
 
-        // ✅ NEW: reference (after username, as you asked)
-        "reference": reference,
+        // ✅ merchant reference you track for FTD polling
+        "reference": localMerchantReference,
 
+        // ✅ Keep customer object, ONLY country
         "customer": {
-          "first_name": firstName,
-          "last_name": lastName,
-          "email": encryptedEmail, // ✅ encrypted
-          "phone": phone,
           "country": country,
         }
       };
@@ -103,8 +99,7 @@ class GptDepositService {
       print("📦 [GPT INIT] URL: $_initUrl");
       print("📦 [GPT INIT] method_code: $methodCode");
       print("👤 [GPT INIT] username: $username");
-      print("🧾 [GPT INIT] reference: $reference");
-      print("🔐 [GPT INIT] Encrypted email: $encryptedEmail");
+      print("🧾 [GPT INIT] local merchant_reference: $localMerchantReference");
       print("📦 [GPT INIT] Payload: ${jsonEncode(payload)}");
 
       final res = await http
@@ -132,7 +127,12 @@ class GptDepositService {
 
       String message = ok ? "Success" : "Request failed";
       String paymentUrl = "";
+
+      // gateway reference (like "arkF1IUY...")
       String referenceFromApi = "";
+
+      // merchant_reference (INV-...)
+      String merchantReferenceFromApi = "";
 
       if (decoded is Map) {
         final m = decoded["message"] ?? decoded["msg"] ?? decoded["error"];
@@ -145,27 +145,38 @@ class GptDepositService {
             final url = innerData["payment_url"];
             if (url != null) paymentUrl = url.toString();
 
+            // ✅ Gateway reference
             final ref = innerData["reference"];
             if (ref != null) referenceFromApi = ref.toString();
+
+            // ✅ Merchant reference (INV-...)
+            final mr = innerData["merchant_reference"];
+            if (mr != null) merchantReferenceFromApi = mr.toString();
           }
         }
       }
 
-      // ✅ If API didn't return reference, keep the one we generated
+      // ✅ Fallbacks
       final finalReference =
-          referenceFromApi.trim().isNotEmpty ? referenceFromApi : reference;
+          referenceFromApi.trim().isNotEmpty ? referenceFromApi : "";
+
+      final finalMerchantReference = merchantReferenceFromApi.trim().isNotEmpty
+          ? merchantReferenceFromApi.trim()
+          : localMerchantReference;
 
       // ✅ DEBUG: extracted fields
       print("🔗 [GPT INIT] Extracted payment_url: $paymentUrl");
       print("🧾 [GPT INIT] Extracted reference: $finalReference");
+      print("🧾 [GPT INIT] Extracted merchant_reference: $finalMerchantReference");
 
       if (ok && paymentUrl.trim().isEmpty) {
         return {
           "ok": false,
           "statusCode": status,
-          "message": "payment_url not found in response",
+          "message": "Payment Server Down Please try again later",
           "payment_url": "",
           "reference": finalReference,
+          "merchant_reference": finalMerchantReference,
         };
       }
 
@@ -175,6 +186,7 @@ class GptDepositService {
         "message": message,
         "payment_url": paymentUrl,
         "reference": finalReference,
+        "merchant_reference": finalMerchantReference,
       };
     } catch (e) {
       print("❌ [GPT INIT] Error: $e");
@@ -184,6 +196,7 @@ class GptDepositService {
         "message": "Network error: $e",
         "payment_url": "",
         "reference": "",
+        "merchant_reference": "",
       };
     }
   }

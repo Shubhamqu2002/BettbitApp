@@ -28,37 +28,53 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
 
-  // ✅ SmartAuth (Android SMS User Consent)
+  // SmartAuth (Android SMS User Consent)
   final SmartAuth _smartAuth = SmartAuth.instance;
   bool _consentListening = false;
 
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize animations
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 800),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOutBack),
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutBack,
+      ),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeIn,
+      ),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutCubic,
+      ),
     );
 
     _animationController.forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focus.requestFocus();
-      _startSmartAuthListener(); // ✅ start listening as soon as panel opens
+      _startSmartAuthListener();
     });
   }
 
@@ -72,29 +88,26 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
   }
 
   Future<void> _startSmartAuthListener() async {
-    if (!Platform.isAndroid) return; // consent flow is Android-only
+    if (!Platform.isAndroid) return;
     if (_consentListening) return;
     _consentListening = true;
 
     try {
       // ignore: avoid_print
-      print(
-          "✅ [REGISTER_OTP_AUTOFILL] SmartAuth: Listening (User Consent API)...");
+      print("✅ [REGISTER_OTP_AUTOFILL] SmartAuth: Listening (User Consent API)...");
 
       final SmartAuthResult<SmartAuthSms> result =
           await _smartAuth.getSmsWithUserConsentApi();
 
       if (!mounted) return;
 
-      // allow restarting later if needed
       _consentListening = false;
 
       if (result.hasData) {
         final SmartAuthSms data = result.requireData;
 
-        final String smsText = data.sms; // full SMS
-        final String codeText =
-            (data.code ?? "").toString(); // extracted code (optional)
+        final String smsText = data.sms;
+        final String codeText = (data.code ?? "").toString();
 
         // ignore: avoid_print
         print("✅ [REGISTER_OTP_AUTOFILL] Received SMS: $smsText");
@@ -115,8 +128,7 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
         print("⚠️ [REGISTER_OTP_AUTOFILL] User canceled consent dialog.");
       } else if (result.hasError) {
         // ignore: avoid_print
-        print(
-            "⚠️ [REGISTER_OTP_AUTOFILL] SmartAuth error: ${result.error?.toString()}");
+        print("⚠️ [REGISTER_OTP_AUTOFILL] SmartAuth error: ${result.error?.toString()}");
       } else {
         // ignore: avoid_print
         print("⚠️ [REGISTER_OTP_AUTOFILL] No SMS captured (unknown state).");
@@ -147,7 +159,6 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
     _ctrl.text = otp;
     _ctrl.selection = TextSelection.collapsed(offset: otp.length);
 
-    // hide keyboard after autofill
     FocusManager.instance.primaryFocus?.unfocus();
 
     // ignore: avoid_print
@@ -169,17 +180,19 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
 
   @override
   Widget build(BuildContext context) {
-    final boxSize = 52.0;
+    const boxSize = 52.0;
 
     return FadeTransition(
       opacity: _fadeAnimation,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Back button and title
-          Row(
-            children: [
-              InkWell(
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Back button
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
                 onTap: widget.isLoading ? null : widget.onBack,
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
@@ -187,7 +200,7 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        Colors.white.withOpacity(0.1),
+                        Colors.white.withOpacity(0.12),
                         Colors.white.withOpacity(0.05),
                       ],
                       begin: Alignment.topLeft,
@@ -195,13 +208,13 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
                     ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.15),
+                      color: const Color(0xFF00C9A7).withOpacity(0.3),
                       width: 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 12,
                         offset: const Offset(0, 4),
                       ),
                     ],
@@ -213,206 +226,365 @@ class _OtpVerifyPanelState extends State<OtpVerifyPanel>
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  widget.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 22,
-                    letterSpacing: 0.5,
+            ),
+
+            const SizedBox(height: 28),
+
+            // Icon with glow effect
+            ScaleTransition(
+              scale: _scaleAnimation,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF00C9A7).withOpacity(0.3),
+                      const Color(0xFF00C9A7).withOpacity(0.1),
+                    ],
                   ),
+                  border: Border.all(
+                    color: const Color(0xFF00C9A7).withOpacity(0.5),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00C9A7).withOpacity(0.4),
+                      blurRadius: 40,
+                      spreadRadius: 5,
+                    ),
+                    BoxShadow(
+                      color: Colors.cyanAccent.withOpacity(0.2),
+                      blurRadius: 60,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  size: 38,
+                  color: Color(0xFF00C9A7),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
+            ),
 
-          // Subtitle
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
+            const SizedBox(height: 24),
+
+            // Title
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [
+                  Color(0xFF00C9A7),
+                  Colors.cyanAccent,
+                  Color(0xFF00C9A7),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: Text(
+                widget.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 26,
+                  letterSpacing: -0.5,
+                  height: 1.1,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // Subtitle
+            Text(
               widget.subtitle,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withOpacity(0.65),
                 fontSize: 14,
                 height: 1.4,
                 letterSpacing: 0.2,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 40),
+
+            // Hidden input for autofill
+            Opacity(
+              opacity: 0,
+              child: TextField(
+                controller: _ctrl,
+                focusNode: _focus,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                decoration: const InputDecoration(counterText: ""),
+                onChanged: _sanitizeAndSet,
               ),
             ),
-          ),
-          const SizedBox(height: 32),
 
-          // Hidden input but we render boxes based on its text
-          Opacity(
-            opacity: 0,
-            child: TextField(
-              controller: _ctrl,
-              focusNode: _focus,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              autofillHints: const [
-                AutofillHints.oneTimeCode
-              ], // ✅ iOS suggestion support
-              decoration: const InputDecoration(counterText: ""),
-              onChanged: _sanitizeAndSet,
-            ),
-          ),
+            // OTP Boxes
+            ScaleTransition(
+              scale: _scaleAnimation,
+              child: GestureDetector(
+                onTap: () {
+                  _focus.requestFocus();
+                  _startSmartAuthListener();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(6, (i) {
+                      final ch = i < _ctrl.text.length ? _ctrl.text[i] : '';
+                      final isFilled = ch.isNotEmpty;
 
-          // OTP Boxes
-          ScaleTransition(
-            scale: _scaleAnimation,
-            child: GestureDetector(
-              onTap: () {
-                _focus.requestFocus();
-                _startSmartAuthListener(); // ✅ if user taps again, ensure listener is active
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(6, (i) {
-                    final ch = i < _ctrl.text.length ? _ctrl.text[i] : '';
-                    final isFilled = ch.isNotEmpty;
-
-                    return TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0.0, end: isFilled ? 1.0 : 0.0),
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                      builder: (context, value, child) {
-                        return Container(
-                          width: boxSize,
-                          height: boxSize,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            gradient: LinearGradient(
-                              colors: isFilled
-                                  ? [
-                                      const Color(0xFF00C9A7).withOpacity(0.15),
-                                      const Color(0xFF00E5B8).withOpacity(0.1),
-                                    ]
-                                  : [
-                                      Colors.white.withOpacity(0.08),
-                                      Colors.white.withOpacity(0.04),
-                                    ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                      return TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: isFilled ? 1.0 : 0.0),
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        builder: (context, value, child) {
+                          return Container(
+                            margin: EdgeInsets.symmetric(
+                              horizontal: i == 2 ? 8 : 4,
                             ),
-                            border: Border.all(
-                              color: isFilled
-                                  ? Color.lerp(
-                                      Colors.white.withOpacity(0.2),
-                                      const Color(0xFF00C9A7),
-                                      value,
-                                    )!
-                                  : Colors.white.withOpacity(0.2),
-                              width: 2,
-                            ),
-                            boxShadow: [
-                              if (isFilled)
-                                BoxShadow(
-                                  color: const Color(0xFF00C9A7)
-                                      .withOpacity(0.3 * value),
-                                  blurRadius: 20,
-                                  spreadRadius: 0,
-                                  offset: const Offset(0, 8),
-                                ),
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: AnimatedScale(
-                            scale: isFilled ? 1.0 : 0.8,
-                            duration: const Duration(milliseconds: 200),
-                            curve: Curves.easeOutBack,
-                            child: Text(
-                              ch,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                                shadows: isFilled
+                            width: boxSize,
+                            height: boxSize,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: LinearGradient(
+                                colors: isFilled
                                     ? [
-                                        Shadow(
-                                          color: const Color(0xFF00C9A7)
-                                              .withOpacity(0.5),
-                                          blurRadius: 8,
-                                        ),
+                                        const Color(0xFF00C9A7)
+                                            .withOpacity(0.2),
+                                        const Color(0xFF00E5B8)
+                                            .withOpacity(0.1),
                                       ]
-                                    : [],
+                                    : [
+                                        Colors.white.withOpacity(0.08),
+                                        Colors.white.withOpacity(0.03),
+                                      ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              border: Border.all(
+                                color: isFilled
+                                    ? Color.lerp(
+                                        Colors.white.withOpacity(0.25),
+                                        const Color(0xFF00C9A7),
+                                        value,
+                                      )!
+                                    : Colors.white.withOpacity(0.25),
+                                width: 2,
+                              ),
+                              boxShadow: [
+                                if (isFilled)
+                                  BoxShadow(
+                                    color: const Color(0xFF00C9A7)
+                                        .withOpacity(0.35 * value),
+                                    blurRadius: 24,
+                                    spreadRadius: 0,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.15),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: AnimatedScale(
+                              scale: isFilled ? 1.0 : 0.8,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOutBack,
+                              child: Text(
+                                ch,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
+                                  shadows: isFilled
+                                      ? [
+                                          Shadow(
+                                            color: const Color(0xFF00C9A7)
+                                                .withOpacity(0.6),
+                                            blurRadius: 10,
+                                          ),
+                                        ]
+                                      : [],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    );
-                  }),
+                          );
+                        },
+                      );
+                    }),
+                  ),
                 ),
               ),
             ),
+
+            const SizedBox(height: 32),
+
+            // Status indicator
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: widget.isLoading
+                  ? _buildLoadingIndicator()
+                  : _ctrl.text.length < 6
+                      ? _buildHelperText()
+                      : _buildSuccessIndicator(),
+            ),
+
+            const Spacer(),
+
+            // Resend OTP button
+            if (!widget.isLoading)
+              TextButton.icon(
+                onPressed: () {
+                  // Add resend logic here if needed
+                },
+                icon: Icon(
+                  Icons.refresh_rounded,
+                  size: 18,
+                  color: const Color(0xFF00C9A7).withOpacity(0.9),
+                ),
+                label: Text(
+                  'Resend Code',
+                  style: TextStyle(
+                    color: const Color(0xFF00C9A7).withOpacity(0.9),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingIndicator() {
+    return Container(
+      key: const ValueKey('loading'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withOpacity(0.3),
+        border: Border.all(
+          color: const Color(0xFF00C9A7).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                const Color(0xFF00C9A7),
+              ),
+            ),
           ),
-
-          const SizedBox(height: 24),
-
-          // Loading indicator
-          if (widget.isLoading)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        const Color(0xFF00C9A7),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    "Verifying your code...",
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                ],
-              ),
+          const SizedBox(width: 12),
+          Text(
+            "Verifying your code...",
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
             ),
+          ),
+        ],
+      ),
+    );
+  }
 
-          // Helper text when not loading
-          if (!widget.isLoading && _ctrl.text.length < 6)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    size: 16,
-                    color: Colors.white.withOpacity(0.6),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    "Enter the 6-digit code sent to your device",
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 12,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
+  Widget _buildHelperText() {
+    return Container(
+      key: const ValueKey('helper'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withOpacity(0.2),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.15),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            size: 16,
+            color: Colors.white.withOpacity(0.6),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              "Enter the 6-digit code",
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 13,
+                letterSpacing: 0.2,
+                fontWeight: FontWeight.w500,
               ),
+              textAlign: TextAlign.center,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuccessIndicator() {
+    return Container(
+      key: const ValueKey('success'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF00C9A7).withOpacity(0.2),
+            const Color(0xFF00C9A7).withOpacity(0.1),
+          ],
+        ),
+        border: Border.all(
+          color: const Color(0xFF00C9A7).withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.check_circle_rounded,
+            size: 18,
+            color: const Color(0xFF00C9A7).withOpacity(0.9),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            "Code entered successfully",
+            style: TextStyle(
+              color: const Color(0xFF00C9A7).withOpacity(0.9),
+              fontSize: 13,
+              letterSpacing: 0.2,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

@@ -55,6 +55,23 @@ class AppsFlyerService {
     debugPrint('✅ [AF] SDK started (global service)');
   }
 
+  /// ✅ AppsFlyer UID (agencyId you want to send)
+  Future<String?> getUid() async {
+    try {
+      if (!_started || _sdk == null) {
+        debugPrint('⚠️ [AF] getUid skipped (SDK not started)');
+        return null;
+      }
+      final uid = await _sdk!.getAppsFlyerUID();
+      final clean = (uid ?? '').toString().trim();
+      if (clean.isEmpty) return null;
+      return clean;
+    } catch (e) {
+      debugPrint('❌ [AF] getUid failed: $e');
+      return null;
+    }
+  }
+
   Future<void> logEvent(String name, Map<String, dynamic> values) async {
     try {
       if (!_started || _sdk == null) {

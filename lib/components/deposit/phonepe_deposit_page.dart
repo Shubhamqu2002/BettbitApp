@@ -1,13 +1,15 @@
+// lib/pages/deposit/phonepe_deposit_page.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/deposit/gpt_deposit_service.dart';
+import '../../services/deposit/appsflyer_deposit_poller_service.dart';
 import '../../components/deposit/gpt_payment_webview_page.dart';
 
 class PhonePeDepositPage extends StatefulWidget {
-  final String depositKey;     // PHONE_PE (method_code)
-  final String depositMethod;  // PHONE_PE (button title)
+  final String depositKey; // PHONE_PE (method_code)
+  final String depositMethod; // PHONE_PE (button title)
   final double minDeposit;
   final double maxDeposit;
   final String groupId;
@@ -29,19 +31,10 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     with SingleTickerProviderStateMixin {
   final _amountCtrl = TextEditingController();
 
-  final _firstNameCtrl = TextEditingController();
-  final _lastNameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-
   String _currency = "INR";
   String _country = "IN";
 
   String? _amountError;
-  String? _firstNameError;
-  String? _lastNameError;
-  String? _emailError;
-  String? _phoneError;
 
   final GptDepositService _service = GptDepositService();
   bool _submitting = false;
@@ -93,6 +86,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     final c = (prefs.getString('currency') ?? 'INR').trim();
     final cc = (prefs.getString('registered_country') ?? 'IN').trim();
 
+    if (!mounted) return;
     setState(() {
       _currency = c.isEmpty ? "INR" : c;
       _country = cc.isEmpty ? "IN" : cc;
@@ -104,31 +98,11 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     return double.tryParse(txt);
   }
 
-  bool _isValidEmail(String v) {
-    final s = v.trim();
-    final re = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-    return re.hasMatch(s);
-  }
-
-  bool _isValidPhone(String v) {
-    final s = v.trim();
-    final re = RegExp(r'^(\+?\d{1,3})?\d{10}$');
-    return re.hasMatch(s);
-  }
-
-  bool _validateAll() {
+  bool _validateAmountOnly() {
     final a = _parseAmount();
-    final fn = _firstNameCtrl.text.trim();
-    final ln = _lastNameCtrl.text.trim();
-    final em = _emailCtrl.text.trim();
-    final ph = _phoneCtrl.text.trim();
 
     setState(() {
       _amountError = null;
-      _firstNameError = null;
-      _lastNameError = null;
-      _emailError = null;
-      _phoneError = null;
 
       if (a == null) {
         _amountError = "Enter a valid amount";
@@ -139,28 +113,9 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
         _amountError =
             "Maximum deposit is $_currency ${widget.maxDeposit.toStringAsFixed(0)}";
       }
-
-      if (fn.isEmpty) _firstNameError = "First name is required";
-      if (ln.isEmpty) _lastNameError = "Last name is required";
-
-      if (em.isEmpty) {
-        _emailError = "Email is required";
-      } else if (!_isValidEmail(em)) {
-        _emailError = "Enter a valid email";
-      }
-
-      if (ph.isEmpty) {
-        _phoneError = "Phone is required";
-      } else if (!_isValidPhone(ph)) {
-        _phoneError = "Enter a valid phone number";
-      }
     });
 
-    return _amountError == null &&
-        _firstNameError == null &&
-        _lastNameError == null &&
-        _emailError == null &&
-        _phoneError == null;
+    return _amountError == null;
   }
 
   /// Returns true if launched, false if app not available / can't launch
@@ -192,9 +147,46 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     );
   }
 
+  void _showSnackBar(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red.shade600 : successAccent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  Future<void> _showErrorAndAutoBack(String message) async {
+    _showSnackBar(message, isError: true);
+    await Future.delayed(const Duration(milliseconds: 1100));
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
-    if (!_validateAll()) return;
+    if (!_validateAmountOnly()) return;
 
     setState(() => _submitting = true);
 
@@ -206,14 +198,10 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       final resp1 = await _service.initiateInvoice(
         amount: amount,
         currency: _currency,
-        methodCode: widget.depositKey, // ✅ method_code should come from key
+        methodCode: widget.depositKey,
         callbackUrl: _callbackUrl,
         webhookUrl: _webhookUrl,
         ipAddress: ip,
-        firstName: _firstNameCtrl.text.trim(),
-        lastName: _lastNameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim(),
         country: _country,
       );
 
@@ -222,20 +210,34 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       final ok1 = resp1["ok"] == true;
       final msg1 = (resp1["message"] ?? "").toString();
       final paymentUrl1 = (resp1["payment_url"] ?? "").toString();
+
+      // gateway reference (not used for FTD polling)
       final reference1 = (resp1["reference"] ?? "").toString();
 
+      // ✅ IMPORTANT: INV-... (used for ftd polling)
+      final merchantRef1 = (resp1["merchant_reference"] ?? "").toString();
+
       if (!ok1) {
-        _showSnackBar(msg1.isEmpty ? "Payment request failed" : msg1, isError: true);
+        await _showErrorAndAutoBack(
+          msg1.isEmpty ? "Payment request failed" : msg1,
+        );
         return;
       }
 
       if (paymentUrl1.trim().isEmpty) {
-        _showSnackBar("payment_url not found in response", isError: true);
+        await _showErrorAndAutoBack(
+          "payment Server Down , Please Try Again Later ",
+        );
         return;
       }
 
-      // ✅ If deep link exists, try to launch
-      // If app not available -> fallback flow
+      // ✅ Store merchant reference locally for polling
+      if (merchantRef1.trim().isNotEmpty) {
+        await AppsFlyerDepositPollerService.instance
+            .addPendingReference(merchantRef1);
+      }
+
+      // ✅ Try to launch deep link
       final launched = await _tryLaunchDeepLink(paymentUrl1);
 
       if (launched) {
@@ -252,14 +254,10 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       final resp2 = await _service.initiateInvoice(
         amount: amount,
         currency: _currency,
-        methodCode: _fallbackMethodCode, // ✅ UPI_URL fallback
+        methodCode: _fallbackMethodCode,
         callbackUrl: _callbackUrl,
         webhookUrl: _webhookUrl,
         ipAddress: ip,
-        firstName: _firstNameCtrl.text.trim(),
-        lastName: _lastNameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim(),
         country: _country,
       );
 
@@ -269,18 +267,27 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       final msg2 = (resp2["message"] ?? "").toString();
       final paymentUrl2 = (resp2["payment_url"] ?? "").toString();
       final reference2 = (resp2["reference"] ?? "").toString();
+      final merchantRef2 = (resp2["merchant_reference"] ?? "").toString();
 
       if (!ok2) {
-        _showSnackBar(msg2.isEmpty ? "Payment request failed" : msg2, isError: true);
+        await _showErrorAndAutoBack(
+          msg2.isEmpty ? "Payment request failed" : msg2,
+        );
         return;
       }
 
       if (paymentUrl2.trim().isEmpty) {
-        _showSnackBar("payment_url not found in response", isError: true);
+        await _showErrorAndAutoBack("payment Server Down , Please Try Again Later");
         return;
       }
 
-      // ✅ Open in separate WebView page
+      // ✅ Store merchant reference for fallback flow too
+      if (merchantRef2.trim().isNotEmpty) {
+        await AppsFlyerDepositPollerService.instance
+            .addPendingReference(merchantRef2);
+      }
+
+      // ✅ Open in WebView page (reference passed is fine; poller uses merchant_reference)
       _openWebPaymentPage(
         paymentUrl: paymentUrl2,
         reference: reference2.isEmpty ? reference1 : reference2,
@@ -290,40 +297,9 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     }
   }
 
-  void _showSnackBar(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline_rounded : Icons.check_circle_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-            ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: isError ? Colors.red.shade600 : successAccent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _amountCtrl.dispose();
-    _firstNameCtrl.dispose();
-    _lastNameCtrl.dispose();
-    _emailCtrl.dispose();
-    _phoneCtrl.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -389,20 +365,11 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
                           controller: _amountCtrl,
                           amountError: _amountError,
                         ),
-                        const SizedBox(height: 18),
-                        _CustomerFormCard(
-                          firstNameCtrl: _firstNameCtrl,
-                          lastNameCtrl: _lastNameCtrl,
-                          emailCtrl: _emailCtrl,
-                          phoneCtrl: _phoneCtrl,
-                          firstNameError: _firstNameError,
-                          lastNameError: _lastNameError,
-                          emailError: _emailError,
-                          phoneError: _phoneError,
-                        ),
                         const SizedBox(height: 28),
                         _SubmitButton(
-                          text: _submitting ? "Processing..." : "Pay via ${widget.depositMethod}",
+                          text: _submitting
+                              ? "Processing..."
+                              : "Pay via ${widget.depositMethod}",
                           onTap: _submitting ? () {} : _submit,
                           isLoading: _submitting,
                         ),
@@ -432,7 +399,8 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(primaryAccent),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(primaryAccent),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -455,7 +423,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
   }
 }
 
-/* ---------- UI Components (unchanged) ---------- */
+/* ---------- UI Components (Customer form removed) ---------- */
 
 class _IconButton extends StatelessWidget {
   final IconData icon;
@@ -526,7 +494,8 @@ class _HeaderCard extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.account_balance_rounded, color: Colors.white, size: 40),
+            child: const Icon(Icons.account_balance_rounded,
+                color: Colors.white, size: 40),
           ),
           const SizedBox(height: 20),
           Text(
@@ -591,7 +560,9 @@ class _AmountInputCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CardTitle(icon: Icons.account_balance_wallet_outlined, title: "Deposit Amount"),
+          _CardTitle(
+              icon: Icons.account_balance_wallet_outlined,
+              title: "Deposit Amount"),
           const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(
@@ -652,79 +623,6 @@ class _AmountInputCard extends StatelessWidget {
             const SizedBox(height: 14),
             _ErrorPill(text: amountError!),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _CustomerFormCard extends StatelessWidget {
-  final TextEditingController firstNameCtrl;
-  final TextEditingController lastNameCtrl;
-  final TextEditingController emailCtrl;
-  final TextEditingController phoneCtrl;
-
-  final String? firstNameError;
-  final String? lastNameError;
-  final String? emailError;
-  final String? phoneError;
-
-  const _CustomerFormCard({
-    required this.firstNameCtrl,
-    required this.lastNameCtrl,
-    required this.emailCtrl,
-    required this.phoneCtrl,
-    this.firstNameError,
-    this.lastNameError,
-    this.emailError,
-    this.phoneError,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _CardShell(
-      borderColor: Colors.white.withOpacity(0.1),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CardTitle(icon: Icons.person_outline_rounded, title: "Customer Details"),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _TextFieldBox(
-                  controller: firstNameCtrl,
-                  label: "First Name",
-                  keyboardType: TextInputType.name,
-                  errorText: firstNameError,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _TextFieldBox(
-                  controller: lastNameCtrl,
-                  label: "Last Name",
-                  keyboardType: TextInputType.name,
-                  errorText: lastNameError,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _TextFieldBox(
-            controller: emailCtrl,
-            label: "Email",
-            keyboardType: TextInputType.emailAddress,
-            errorText: emailError,
-          ),
-          const SizedBox(height: 12),
-          _TextFieldBox(
-            controller: phoneCtrl,
-            label: "Phone",
-            keyboardType: TextInputType.phone,
-            hintText: "+919876543210",
-            errorText: phoneError,
-          ),
         ],
       ),
     );
@@ -808,7 +706,8 @@ class _SecurityBadge extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF10B981).withOpacity(0.1),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3), width: 1),
+          border: Border.all(
+              color: const Color(0xFF10B981).withOpacity(0.3), width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -819,7 +718,8 @@ class _SecurityBadge extends StatelessWidget {
                 color: const Color(0xFF10B981).withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 16),
+              child: const Icon(Icons.verified_user_rounded,
+                  color: Color(0xFF10B981), size: 16),
             ),
             const SizedBox(width: 10),
             Text(
@@ -871,7 +771,8 @@ class _CardTitle extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
+            gradient: const LinearGradient(
+                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: Colors.white, size: 20),
@@ -886,63 +787,6 @@ class _CardTitle extends StatelessWidget {
             letterSpacing: -0.3,
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _TextFieldBox extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final String? hintText;
-  final TextInputType keyboardType;
-  final String? errorText;
-
-  const _TextFieldBox({
-    required this.controller,
-    required this.label,
-    required this.keyboardType,
-    this.hintText,
-    this.errorText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = errorText != null
-        ? Colors.red.shade400.withOpacity(0.5)
-        : Colors.white.withOpacity(0.1);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: borderColor, width: 1),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          child: TextField(
-            controller: controller,
-            keyboardType: keyboardType,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.95),
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: hintText,
-              labelStyle: TextStyle(color: Colors.white.withOpacity(0.65)),
-              hintStyle: TextStyle(color: Colors.white.withOpacity(0.35)),
-              border: InputBorder.none,
-            ),
-          ),
-        ),
-        if (errorText != null) ...[
-          const SizedBox(height: 10),
-          _ErrorPill(text: errorText!),
-        ]
       ],
     );
   }
@@ -964,7 +808,8 @@ class _ErrorPill extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline_rounded, color: Colors.red.shade400, size: 18),
+          Icon(Icons.error_outline_rounded,
+              color: Colors.red.shade400, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

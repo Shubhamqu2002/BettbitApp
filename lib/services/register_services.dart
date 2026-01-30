@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../util/crypto_utils.dart';
 import '../util/token_manager.dart';
 
-// ✅ NEW
+// ✅ APPSFLYER
 import 'analytics/appsflyer_service.dart';
 
 class RegisterService {
@@ -34,6 +34,9 @@ class RegisterService {
   static const String _mascotBankGroupId = "PU4012_Nexxorra_INR";
   static const int _mascotRpcId = 1928822491;
   static const String _torrospinBirthdateHardcoded = "1990-01-01";
+
+  // ✅ NEW: hardcoded platform code query param for patch call
+  static const String _platformCodeHardcoded = "QN2570";
 
   String _shortBody(String body, {int limit = 400}) {
     if (body.length <= limit) return body;
@@ -176,6 +179,7 @@ class RegisterService {
       "dob": dob,
       "gender": gender,
       "country": country,
+      "source": "Mobile",
       "registrationType": registrationType, // EMAIL / PHONE
     };
 
@@ -217,8 +221,16 @@ class RegisterService {
       },
     );
 
+    // ✅ username from response
+    final userName = (data['userName'] ?? '').toString().trim();
+
+    // ✅ grab AppsFlyer UID (agencyId) and fire PATCH (do NOT wait)
+    unawaited(_firePlatformCodePatchAfterRegistration(
+      userName: userName,
+      token: token,
+    ));
+
     final prefs = await SharedPreferences.getInstance();
-    final userName = (data['userName'] ?? '').toString();
     await prefs.setString('user_name', userName);
 
     debugPrint('💾 [REGISTER] Saved user_name: $userName');
@@ -229,6 +241,53 @@ class RegisterService {
     }
 
     return data;
+  }
+
+  /// ✅ NEW: Fire-and-leave PATCH call
+  /// PATCH /api/gamer/by-username/{username}/platform-code?code=PU4015&agencyId=<APPSFLYER_UID>
+  Future<void> _firePlatformCodePatchAfterRegistration({
+    required String userName,
+    required String token,
+  }) async {
+    try {
+      if (userName.trim().isEmpty) {
+        debugPrint('⚠️ [PATCH][PLATFORM] Skipped: userName is empty');
+        return;
+      }
+
+      final afUid = await AppsFlyerService.instance.getUid();
+      final agencyId = (afUid ?? '').trim();
+
+      if (agencyId.isEmpty) {
+        debugPrint('⚠️ [PATCH][PLATFORM] Skipped: AppsFlyer UID not available');
+        return;
+      }
+
+      final uri = Uri.parse(
+        '$_baseUrl/api/gamer/by-username/$userName/platform-code',
+      ).replace(queryParameters: {
+        'code': _platformCodeHardcoded, // ✅ hardcoded
+        'agencyId': agencyId,           // ✅ AppsFlyer UID
+      });
+
+      debugPrint('➡️ [PATCH][PLATFORM] URL: $uri');
+      debugPrint('🔐 [PATCH][PLATFORM] agencyId(AF UID): $agencyId');
+
+      final res = await http.patch(
+        uri,
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({}), // curl had no body; keep safe empty JSON
+      );
+
+      debugPrint(
+        '⬅️ [PATCH][PLATFORM] status=${res.statusCode} body=${_shortBody(res.body)}',
+      );
+    } catch (e) {
+      debugPrint('❌ [PATCH][PLATFORM] Error: $e');
+    }
   }
 
   Future<void> _hitMascotPlayerSet(String userName) async {
