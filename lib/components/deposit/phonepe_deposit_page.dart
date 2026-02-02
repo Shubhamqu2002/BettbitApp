@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/deposit/gpt_deposit_service.dart';
 import '../../services/deposit/appsflyer_deposit_poller_service.dart';
+import '../../services/deposit/invoice_remarks_service.dart';
 import '../../components/deposit/gpt_payment_webview_page.dart';
 
 class PhonePeDepositPage extends StatefulWidget {
@@ -53,6 +54,9 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       "https://payment.bettbit.com/api/invoice/payin/callback";
 
   static const String _fallbackMethodCode = "UPI_URL";
+
+  // ✅ NEW: remarks text for fallback case
+  static const String _remarksAppNotAvailable = "App is not available";
 
   @override
   void initState() {
@@ -214,7 +218,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
       // gateway reference (not used for FTD polling)
       final reference1 = (resp1["reference"] ?? "").toString();
 
-      // ✅ IMPORTANT: INV-... (used for ftd polling)
+      // ✅ IMPORTANT: INV-... (used for ftd polling + NEW remarks API)
       final merchantRef1 = (resp1["merchant_reference"] ?? "").toString();
 
       if (!ok1) {
@@ -245,11 +249,20 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
         return;
       }
 
-      // ✅ FALLBACK: If app not available, call same API with method_code = UPI_URL
+      // ✅ FALLBACK: If app not available, first hit remarks API, then call same API with method_code = UPI_URL
       _showSnackBar(
         "${widget.depositMethod} app not available. Redirecting to UPI payment page...",
         isError: false,
       );
+
+      // ✅ NEW: Update remarks using merchant_reference from resp1
+      // NOTE: This should NOT block user flow; even if it fails, fallback continues.
+      if (merchantRef1.trim().isNotEmpty) {
+        await InvoiceRemarksService.instance.updateRemarks(
+          merchantReference: merchantRef1,
+          remarks: _remarksAppNotAvailable,
+        );
+      }
 
       final resp2 = await _service.initiateInvoice(
         amount: amount,
@@ -514,7 +527,8 @@ class _HeaderCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.08),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+              border:
+                  Border.all(color: Colors.white.withOpacity(0.15), width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,

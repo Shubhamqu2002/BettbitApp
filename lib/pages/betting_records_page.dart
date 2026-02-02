@@ -96,6 +96,7 @@ class _BettingRecordsPageState extends State<BettingRecordsPage>
     try {
       final prefs = await SharedPreferences.getInstance();
       final walletId = prefs.getString('gamer_id');
+      final platformCode = prefs.getString('platform_code');
 
       if (walletId == null || walletId.isEmpty) {
         setState(() {
@@ -107,13 +108,22 @@ class _BettingRecordsPageState extends State<BettingRecordsPage>
         return;
       }
 
+      if (platformCode == null || platformCode.isEmpty) {
+        setState(() {
+          _errorMessage =
+              'Platform code not found in SharedPreferences.\nPlease ensure it is saved as "platform_code".';
+          _isLoadingFilters = false;
+          _isLoadingTable = false;
+        });
+        return;
+      }
+
       _walletId = walletId;
+      _platformCode = platformCode;
 
       final vendorResp = await _service.fetchGameVendorDetails(
         walletId: walletId,
       );
-
-      _platformCode = vendorResp.platformCode ?? 'PU4012';
 
       final Map<String, GameInfo> unique = {};
       for (final g in vendorResp.games) {
@@ -370,7 +380,8 @@ class _BettingRecordsPageState extends State<BettingRecordsPage>
                             width: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           ),
                         )
@@ -472,8 +483,8 @@ class _BettingRecordsPageState extends State<BettingRecordsPage>
                                   ),
                                 ),
                                 child: Text(
-                                  _selectedCategory == 'ALL' 
-                                      ? 'All Categories' 
+                                  _selectedCategory == 'ALL'
+                                      ? 'All Categories'
                                       : _selectedCategory,
                                   style: TextStyle(
                                     color: successAccent,

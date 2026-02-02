@@ -12,6 +12,9 @@ import 'update_page.dart';
 import 'login_page.dart';
 import 'home_page.dart';
 
+// ✅ ADD: Poller boot (starts polling if pending refs exist)
+import '../services/deposit/appsflyer_deposit_poller_service.dart';
+
 class SplashPage extends StatefulWidget {
   static const String routeName = '/';
 
@@ -164,6 +167,10 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       return;
     }
 
+    // ✅ ADD: After version check passes, boot poller once here too
+    // (It will only start polling if pending refs exist.)
+    await AppsFlyerDepositPollerService.instance.boot();
+
     await _decideNavigation();
   }
 
@@ -233,10 +240,10 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 shape: BoxShape.circle,
                                 gradient: RadialGradient(
                                   colors: [
-                                    const Color(0xFF00C9A7)
-                                        .withOpacity(0.15 * _glowAnimation.value),
-                                    const Color(0xFF00A6FF)
-                                        .withOpacity(0.1 * _glowAnimation.value),
+                                    const Color(0xFF00C9A7).withOpacity(
+                                        0.15 * _glowAnimation.value),
+                                    const Color(0xFF00A6FF).withOpacity(
+                                        0.1 * _glowAnimation.value),
                                     Colors.transparent,
                                   ],
                                   stops: const [0.0, 0.5, 1.0],
@@ -250,15 +257,15 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 shape: BoxShape.circle,
                                 gradient: RadialGradient(
                                   colors: [
-                                    const Color(0xFF00C9A7)
-                                        .withOpacity(0.2 * _glowAnimation.value),
+                                    const Color(0xFF00C9A7).withOpacity(
+                                        0.2 * _glowAnimation.value),
                                     Colors.transparent,
                                   ],
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF00C9A7)
-                                        .withOpacity(0.4 * _glowAnimation.value),
+                                    color: const Color(0xFF00C9A7).withOpacity(
+                                        0.4 * _glowAnimation.value),
                                     blurRadius: 40,
                                     spreadRadius: 10,
                                   ),
@@ -360,11 +367,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 color: Colors.white,
                                 shadows: [
                                   Shadow(
-                                    color: const Color(0xFF00C9A7).withOpacity(0.5),
+                                    color: const Color(0xFF00C9A7)
+                                        .withOpacity(0.5),
                                     blurRadius: 20,
                                   ),
                                   Shadow(
-                                    color: const Color(0xFF00A6FF).withOpacity(0.5),
+                                    color: const Color(0xFF00A6FF)
+                                        .withOpacity(0.5),
                                     blurRadius: 30,
                                   ),
                                 ],
@@ -399,12 +408,14 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                 ),
                                 borderRadius: BorderRadius.circular(25),
                                 border: Border.all(
-                                  color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                  color:
+                                      const Color(0xFF00C9A7).withOpacity(0.3),
                                   width: 1.5,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF00C9A7).withOpacity(0.2),
+                                    color:
+                                        const Color(0xFF00C9A7).withOpacity(0.2),
                                     blurRadius: 15,
                                     spreadRadius: 1,
                                   ),
@@ -434,14 +445,19 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                       alignment: Alignment.center,
                                       children: [
                                         Container(
-                                          width: 40 * (1 + _glowAnimation.value * 0.3),
-                                          height: 40 * (1 + _glowAnimation.value * 0.3),
+                                          width: 40 *
+                                              (1 +
+                                                  _glowAnimation.value * 0.3),
+                                          height: 40 *
+                                              (1 +
+                                                  _glowAnimation.value * 0.3),
                                           decoration: BoxDecoration(
                                             shape: BoxShape.circle,
                                             gradient: RadialGradient(
                                               colors: [
                                                 const Color(0xFF00C9A7)
-                                                    .withOpacity(0.3 * _glowAnimation.value),
+                                                    .withOpacity(0.3 *
+                                                        _glowAnimation.value),
                                                 Colors.transparent,
                                               ],
                                             ),
@@ -449,10 +465,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                         ),
                                         CircularProgressIndicator(
                                           strokeWidth: 3,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                            const Color(0xFF00C9A7).withOpacity(_glowAnimation.value),
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            const Color(0xFF00C9A7).withOpacity(
+                                                _glowAnimation.value),
                                           ),
-                                          backgroundColor: Colors.white.withOpacity(0.1),
+                                          backgroundColor:
+                                              Colors.white.withOpacity(0.1),
                                         ),
                                       ],
                                     ),
@@ -462,7 +481,8 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                                     'Loading...',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.white.withOpacity(0.6 * _glowAnimation.value),
+                                      color: Colors.white.withOpacity(
+                                          0.6 * _glowAnimation.value),
                                       letterSpacing: 2.0,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -577,8 +597,10 @@ class ParticlePainter extends CustomPainter {
         )!
             .withOpacity(opacity);
 
-        final currentX = centerX + particle.x * (1 + progress * particle.speed);
-        final currentY = centerY + particle.y * (1 + progress * particle.speed);
+        final currentX =
+            centerX + particle.x * (1 + progress * particle.speed);
+        final currentY =
+            centerY + particle.y * (1 + progress * particle.speed);
 
         canvas.drawCircle(
           Offset(currentX, currentY),

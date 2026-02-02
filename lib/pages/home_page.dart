@@ -186,12 +186,12 @@ class _HomePageState extends State<HomePage> {
     final tabs = [
       {'name': 'ALL', 'icon': Icons.apps_rounded},
       {'name': 'HOT', 'icon': Icons.local_fire_department_rounded},
+      {'name': 'SPORTS', 'icon': Icons.sports_soccer_rounded},
       {'name': 'SLOT', 'icon': Icons.casino_rounded},
       {'name': 'CASINO', 'icon': Icons.style_rounded},
-      {'name': 'TOURNEY', 'icon': Icons.emoji_events_rounded},
-      {'name': 'SPORTS', 'icon': Icons.sports_soccer_rounded},
-      {'name': 'BINGO', 'icon': Icons.grid_on_rounded},
       {'name': 'TABLE', 'icon': Icons.table_restaurant_rounded},
+      {'name': 'BINGO', 'icon': Icons.grid_on_rounded},
+      {'name': 'TOURNEY', 'icon': Icons.emoji_events_rounded},
     ];
 
     return Container(

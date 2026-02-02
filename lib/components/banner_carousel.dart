@@ -63,7 +63,8 @@ class _BannerCarouselState extends State<BannerCarousel> {
 
     if (_bannerFiles.isEmpty) return;
 
-    _pageController = PageController(viewportFraction: 0.9);
+    // ✅ Keep as-is (your current behavior)
+    _pageController = PageController(viewportFraction: 0.96);
     _currentIndex = 0;
 
     if (_bannerFiles.length > 1) {
@@ -85,7 +86,7 @@ class _BannerCarouselState extends State<BannerCarousel> {
       duration: const Duration(milliseconds: 450),
       curve: Curves.easeOut,
     );
-    // onPageChanged will also update, but we keep this in sync
+
     setState(() {
       _currentIndex = nextPage;
     });
@@ -100,9 +101,12 @@ class _BannerCarouselState extends State<BannerCarousel> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Smaller height (banner-only look)
+    const double bannerHeight = 120;
+
     if (_isLoading) {
       return const SizedBox(
-        height: 160,
+        height: bannerHeight,
         child: Center(
           child: SizedBox(
             width: 32,
@@ -115,7 +119,7 @@ class _BannerCarouselState extends State<BannerCarousel> {
 
     if (_error != null) {
       return SizedBox(
-        height: 160,
+        height: bannerHeight,
         child: Center(
           child: Text(
             _error!,
@@ -136,109 +140,64 @@ class _BannerCarouselState extends State<BannerCarousel> {
     return Column(
       children: [
         SizedBox(
-          height: 160,
+          height: bannerHeight,
           child: PageView.builder(
             controller: _pageController,
             itemCount: urls.length,
             onPageChanged: (index) {
               setState(() {
-                _currentIndex = index; // ✅ fix: dots now update properly
+                _currentIndex = index;
               });
             },
             itemBuilder: (context, index) {
               final url = urls[index];
+
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // Soft glass background
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.white.withOpacity(0.06),
-                              Colors.white.withOpacity(0.02),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                        ),
-                      ),
-                      // Banner image
-                      Image.network(
-                        url,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, progress) {
-                          if (progress == null) return child;
-                          return Center(
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                value: progress.expectedTotalBytes != null
-                                    ? progress.cumulativeBytesLoaded /
-                                        progress.expectedTotalBytes!
-                                    : null,
-                              ),
-                            ),
-                          );
-                        },
-                        errorBuilder: (context, _, __) => Container(
-                          alignment: Alignment.center,
-                          color: Colors.black26,
-                          child: const Icon(
-                            Icons.broken_image_outlined,
-                            color: Colors.white70,
-                            size: 32,
-                          ),
-                        ),
-                      ),
-                      // Top gradient overlay for better look
-                      Align(
-                        alignment: Alignment.topCenter,
-                        child: Container(
-                          height: 40,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.black.withOpacity(0.35),
-                                Colors.transparent,
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
+                // ✅ no extra padding outside the banner (edge-to-edge inside page)
+                padding: EdgeInsets.zero,
+                child: Container(
+                  // ✅ border + rounded corners
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.18),
+                      width: 1,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    // ✅ curve the banner image corners
+                    borderRadius: BorderRadius.circular(18),
+                    child: Image.network(
+                      url,
+                      // ✅ show full 860x220 banner without cutting
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              value: progress.expectedTotalBytes != null
+                                  ? progress.cumulativeBytesLoaded /
+                                      progress.expectedTotalBytes!
+                                  : null,
                             ),
                           ),
+                        );
+                      },
+                      errorBuilder: (context, _, __) => Container(
+                        alignment: Alignment.center,
+                        color: Colors.black26,
+                        child: const Icon(
+                          Icons.broken_image_outlined,
+                          color: Colors.white70,
+                          size: 32,
                         ),
                       ),
-                      // Optional label chip
-                      Positioned(
-                        left: 12,
-                        top: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: Colors.black.withOpacity(0.45),
-                          ),
-                          child: const Text(
-                            'Featured',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               );
@@ -246,7 +205,7 @@ class _BannerCarouselState extends State<BannerCarousel> {
           ),
         ),
         const SizedBox(height: 8),
-        // dot indicators
+        // dot indicators (kept same)
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(urls.length, (i) {

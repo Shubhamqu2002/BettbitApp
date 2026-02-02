@@ -39,7 +39,9 @@ class _AccountRecordsPageState extends State<AccountRecordsPage>
   bool _filtersExpanded = false;
 
   Timer? _debounce;
-  final String _platformCode = "PU4012";
+
+  // ✅ Platform code will be read from SharedPreferences (not hardcoded)
+  String _platformCode = "";
 
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
@@ -211,6 +213,18 @@ class _AccountRecordsPageState extends State<AccountRecordsPage>
     return gamerId;
   }
 
+  // ✅ NEW: read platform_code from SharedPreferences (set during login)
+  Future<String> _getPlatformCodeFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pc = (prefs.getString('platform_code') ?? '').trim();
+
+    if (pc.isEmpty) {
+      throw Exception("platform_code not found in SharedPreferences.");
+    }
+
+    return pc;
+  }
+
   // ------------------ API ------------------
 
   Future<void> _hitApi() async {
@@ -221,6 +235,12 @@ class _AccountRecordsPageState extends State<AccountRecordsPage>
 
     try {
       final walletId = await _getWalletIdFromPrefs();
+
+      // ✅ take platform code from SharedPreferences (not hardcoded)
+      final platformCode = await _getPlatformCodeFromPrefs();
+
+      // keep it in state (optional, but helpful for debugging/consistency)
+      _platformCode = platformCode;
 
       final pageRes = await _service.fetchLedger(
         page: _page,
@@ -676,8 +696,8 @@ class _AccountRecordsPageState extends State<AccountRecordsPage>
                                 ),
                                 const Spacer(),
                                 Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withOpacity(0.05),
                                     borderRadius: BorderRadius.circular(12),
