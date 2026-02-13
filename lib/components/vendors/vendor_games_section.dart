@@ -5,20 +5,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:flutter_svg/flutter_svg.dart'; // ✅ for .svg support
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../services/vendor_game_service.dart';
 import '../../services/wallet_service.dart';
 import '../../pages/deposit_page.dart';
 
-// ✅ Lucky Sports service
 import '../../services/luckysports/luckysport_service.dart';
-
-// ✅ NEW: AddMember service (one-time registration)
 import '../../services/addmember/addmember_service.dart';
 
+import '../../services/game_search_service.dart';
 import '../branded_loader.dart';
 import '../models/deposit_required_modal.dart';
+
+import '../home/vendor_filter_components.dart';
+import '../home/game_search_bar.dart';
 
 class VendorGamesSection extends StatefulWidget {
   final String category;
@@ -36,21 +37,24 @@ class VendorGamesSection extends StatefulWidget {
 
 class _VendorGamesSectionState extends State<VendorGamesSection> {
   static const String _allVendorCode = 'ALL';
-
-  // ✅ Prefix for relative assets paths like "assets/luckysports.png"
   static const String _bettbitCdnPrefix = "https://bettbit.com/";
 
-  // ✅ MUST MATCH HomePage keys
   static const String kTotalBalanceKey = 'wallet_total_balance';
   static const String kBalanceUpdatedAtKey = 'wallet_balance_updated_at_ms';
   static const String kCurrencyKey = 'currency';
 
   final VendorGameService _service = VendorGameService();
   final WalletService _walletService = WalletService();
-  final ScrollController _scrollController = ScrollController();
+  final GameSearchService _searchService = GameSearchService.instance;
 
-  // ✅ NEW: AddMember Service instance
+  final ScrollController _scrollController = ScrollController();
   final AddMemberService _addMember = AddMemberService.instance;
+
+  // ✅ Search state
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  bool _isSearching = false;
+  String _searchQuery = "";
 
   bool _isLoadingVendors = false;
   bool _isLoadingGames = false;
@@ -68,30 +72,27 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   bool _isLaunchingGame = false;
   String? _launchingGameName;
+  bool _isCheckingBalance = false;
 
-  bool _isCheckingBalance = false; // ✅ prevents double-check spam
+  // ✅ Track async requests to avoid old responses overriding UI (VERY IMPORTANT)
+  int _gamesReqId = 0;
 
   void _log(String msg) {
     if (kDebugMode) debugPrint("🟦 [VendorGames] $msg");
   }
 
-  // ✅ Normalize image URLs:
-  // - If already http/https -> return as is
-  // - If "assets/..." (relative) -> prefix with https://bettbit.com/
-  // - If begins with "/" -> prefix
-  // - Otherwise keep (might be data:, file:, etc.)
+  void _fire(Future<void> f) {}
+
+  bool get _searchActive => _searchQuery.trim().isNotEmpty;
+
   String _normalizeImageUrl(String raw) {
     final s = raw.trim();
     if (s.isEmpty) return '';
     final lower = s.toLowerCase();
 
     if (lower.startsWith('http://') || lower.startsWith('https://')) return s;
-
-    // your backend sometimes returns: assets/luckysports.png
     if (lower.startsWith('assets/')) return '$_bettbitCdnPrefix$s';
-
     if (s.startsWith('/')) return '$_bettbitCdnPrefix${s.substring(1)}';
-
     return s;
   }
 
@@ -116,7 +117,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
     }
 
-    // ✅ SVG support (fixes: https://.../Ardervar.svg)
     if (_isSvgUrl(normalized)) {
       return Padding(
         padding: padding,
@@ -140,7 +140,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
     }
 
-    // ✅ Normal images (png/jpg/webp/etc.)
     return Padding(
       padding: padding,
       child: Image.network(
@@ -161,6 +160,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     super.initState();
     _scrollController.addListener(_onScroll);
     _loadVendorsAndInitialGames();
+
+    _searchCtrl.addListener(() {
+      if (mounted) setState(() {}); // keep clear icon updated
+    });
   }
 
   @override
@@ -168,12 +171,17 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.category != widget.category ||
         oldWidget.platform != widget.platform) {
+      _searchDebounce?.cancel();
+      _searchCtrl.clear();
+      _searchQuery = "";
       _loadVendorsAndInitialGames();
     }
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -183,7 +191,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     if (!_hasMoreGames || _isLoadingMoreGames || _isLoadingGames) return;
     if (_scrollController.position.pixels >
         _scrollController.position.maxScrollExtent - 200) {
-      _loadMoreGames();
+      _fire(_loadMoreGames());
     }
   }
 
@@ -244,10 +252,13 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     setState(() {
       _isLoadingVendors = true;
       _isLoadingGames = true;
+      _isLoadingMoreGames = false;
       _errorMessage = null;
+
       _vendors = [];
       _games = [];
       _selectedVendorCode = _allVendorCode;
+
       _currentGamePage = 0;
       _hasMoreGames = false;
       _totalGames = 0;
@@ -272,19 +283,26 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       setState(() {
         _isLoadingVendors = false;
         _isLoadingGames = false;
+        _isLoadingMoreGames = false;
         _errorMessage = msg;
       });
       _showPrettyError('Unable to load vendors', msg);
     }
   }
 
+  // ✅ Main loader decides: normal list OR search list
+  // ✅ Added request-id guard + better logs + stable pagination for search
   Future<void> _loadGames({bool reset = false}) async {
     if (_selectedVendorCode == null) return;
+
+    final int reqId = ++_gamesReqId;
 
     if (reset) {
       setState(() {
         _isLoadingGames = true;
+        _isLoadingMoreGames = false;
         _errorMessage = null;
+
         _games = [];
         _currentGamePage = 0;
         _hasMoreGames = false;
@@ -295,7 +313,61 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     }
 
     try {
+      // -------------------------
+      // ✅ SEARCH MODE
+      // -------------------------
+      if (_searchActive) {
+        final prefs = await SharedPreferences.getInstance();
+        final cc = (prefs.getString('registered_country') ?? 'IN').trim();
+        final countryCode = cc.isEmpty ? 'IN' : cc;
+
+        _log(
+            "🔎 SEARCH -> q='$_searchQuery' cc='$countryCode' page=$_currentGamePage size=24 reset=$reset reqId=$reqId");
+
+        final result = await _searchService.searchGames(
+          query: _searchQuery,
+          countryCode: countryCode,
+          page: _currentGamePage,
+          size: 24,
+        );
+
+        // ✅ DO NOT category-filter here (it causes false "no games")
+        // because backend returns categoryCode like "slot" but screen may pass "SLOT" / "Slot" etc.
+        // If you want, do it ONLY when you are 100% sure keys match.
+
+        if (!mounted) return;
+        if (reqId != _gamesReqId) {
+          _log("🟨 IGNORE old search response reqId=$reqId current=$_gamesReqId");
+          return;
+        }
+
+        setState(() {
+          if (reset) {
+            _games = result.games;
+          } else {
+            _games = [..._games, ...result.games];
+          }
+
+          _totalGames = result.totalElements;
+          _hasMoreGames = !result.last;
+
+          _isLoadingGames = false;
+          _isLoadingMoreGames = false;
+          _errorMessage = null;
+        });
+
+        _log(
+            "✅ SEARCH UI updated: games=${_games.length} total=$_totalGames hasMore=$_hasMoreGames reqId=$reqId");
+        return;
+      }
+
+      // -------------------------
+      // ✅ NORMAL MODE (UNCHANGED)
+      // -------------------------
       final vendorCodeToSend = _selectedVendorCode ?? _allVendorCode;
+
+      _log(
+          "🎮 LIST -> category=${widget.category} vendor=$vendorCodeToSend platform=${widget.platform} page=$_currentGamePage size=24 reset=$reset reqId=$reqId");
 
       final result = await _service.fetchGames(
         category: widget.category,
@@ -306,6 +378,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
 
       if (!mounted) return;
+      if (reqId != _gamesReqId) {
+        _log("🟨 IGNORE old list response reqId=$reqId current=$_gamesReqId");
+        return;
+      }
 
       setState(() {
         if (reset) {
@@ -316,12 +392,20 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
         _totalGames = result.totalElements;
         _hasMoreGames = !result.last;
+
         _isLoadingGames = false;
         _isLoadingMoreGames = false;
         _errorMessage = null;
       });
+
+      _log(
+          "✅ LIST UI updated: games=${_games.length} total=$_totalGames hasMore=$_hasMoreGames reqId=$reqId");
     } catch (e) {
       if (!mounted) return;
+      if (reqId != _gamesReqId) {
+        _log("🟨 IGNORE error from old reqId=$reqId current=$_gamesReqId: $e");
+        return;
+      }
       final msg = _friendlyErrorMessage(e);
       setState(() {
         _isLoadingGames = false;
@@ -338,7 +422,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     await _loadGames(reset: false);
   }
 
-  void _onAllTap() async {
+  Future<void> _onAllTap() async {
     if (_selectedVendorCode == _allVendorCode) return;
 
     setState(() {
@@ -346,10 +430,13 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _errorMessage = null;
     });
 
+    // ✅ If searching, vendor tap should not break search results
+    // We still reload, but search has priority in _loadGames.
+    _currentGamePage = 0;
     await _loadGames(reset: true);
   }
 
-  void _onVendorTap(VendorModel vendor) async {
+  Future<void> _onVendorTap(VendorModel vendor) async {
     if (_selectedVendorCode == vendor.vendorCode) return;
 
     setState(() {
@@ -357,6 +444,49 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _errorMessage = null;
     });
 
+    _currentGamePage = 0;
+    await _loadGames(reset: true);
+  }
+
+  // ✅ Search handlers
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final q = v.trim();
+
+      if (!mounted) return;
+
+      setState(() {
+        _searchQuery = q;
+        _isSearching = q.isNotEmpty;
+      });
+
+      _log("⌨️ onSearchChanged -> '$_searchQuery'");
+
+      // reset paging + reload (search has priority)
+      _currentGamePage = 0;
+      await _loadGames(reset: true);
+
+      if (mounted) {
+        setState(() => _isSearching = false);
+      }
+    });
+  }
+
+  Future<void> _clearSearch() async {
+    _searchDebounce?.cancel();
+    _searchCtrl.clear();
+
+    if (!mounted) return;
+
+    setState(() {
+      _searchQuery = "";
+      _isSearching = false;
+    });
+
+    _log("🧹 clearSearch -> back to normal list");
+
+    _currentGamePage = 0;
     await _loadGames(reset: true);
   }
 
@@ -389,6 +519,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     return {'totalBalance': stored, 'currency': currency};
   }
 
+  // ✅ GAME TAP (UNCHANGED)
   Future<void> _onGameTap(GameModel game) async {
     if (_isLaunchingGame) return;
     if (_isCheckingBalance) return;
@@ -426,7 +557,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       final prefs = await SharedPreferences.getInstance();
       final userName = (prefs.getString('user_name') ?? '').trim();
 
-      // ✅ Use registered_country (as you requested). fallback to countryCode then IN.
       final registeredCountry =
           (prefs.getString('registered_country') ?? '').trim();
       final countryCodeFallback = (prefs.getString('countryCode') ?? '').trim();
@@ -591,6 +721,31 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     );
   }
 
+  String _selectedVendorLabel() {
+    final code = (_selectedVendorCode ?? _allVendorCode);
+    if (code == _allVendorCode) return 'ALL';
+    final v = _vendors.where((x) => x.vendorCode == code);
+    if (v.isNotEmpty) return v.first.vendorName;
+    return code;
+  }
+
+  Future<void> _openVendorFilterSheet() async {
+    await VendorFilterSheet.open<VendorModel>(
+      context: context,
+      title:
+          '${widget.category[0]}${widget.category.substring(1).toLowerCase()} Vendors',
+      vendors: _vendors,
+      selectedVendorCode: (_selectedVendorCode ?? _allVendorCode),
+      vendorCodeOf: (v) => v.vendorCode,
+      vendorNameOf: (v) => v.vendorName,
+      vendorImageUrlOf: (v) => v.resolvedImageUrl,
+      normalizeImageUrl: _normalizeImageUrl,
+      networkImageSmart: _networkImageSmart,
+      onSelectAll: _onAllTap,
+      onSelectVendor: _onVendorTap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final categoryLabel =
@@ -614,29 +769,48 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '$categoryLabel Vendors',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: GameSearchBar(
+                        controller: _searchCtrl,
+                        isLoading: _isSearching,
+                        hintText: "Search games...",
+                        onChanged: _onSearchChanged,
+                        onClear: () => _fire(_clearSearch()),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    VendorFilterButton(
+                      isDisabled: _isLoadingVendors,
+                      label: _selectedVendorLabel(),
+                      onTap: () => _fire(_openVendorFilterSheet()),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$categoryLabel Games',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     if (_totalGames > 0)
                       Text(
                         '$_totalGames games',
                         style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
+                            color: Colors.white70, fontSize: 12),
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                _buildVendorsRow(),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 _buildGamesGrid(),
                 if (_isLoadingMoreGames)
                   Padding(
@@ -650,177 +824,12 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                     child: Text(
                       _errorMessage!,
                       style: const TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 12,
-                      ),
+                          color: Colors.redAccent, fontSize: 12),
                     ),
                   ),
               ],
             ),
             if (_isLaunchingGame) _buildTransparentLaunchingOverlay(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------- rest of your file unchanged ----------------
-
-  Widget _buildVendorsRow() {
-    if (_isLoadingVendors) {
-      return SizedBox(
-        height: 96,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: 6,
-          separatorBuilder: (_, __) => const SizedBox(width: 10),
-          itemBuilder: (_, __) => Container(
-            width: 88,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: 98,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _buildAllVendorCard(),
-            ..._vendors.map((vendor) {
-              final bool isSelected = vendor.vendorCode == _selectedVendorCode;
-
-              // ✅ important: normalize relative or svg links
-              final logoUrl = _normalizeImageUrl(vendor.resolvedImageUrl);
-
-              return GestureDetector(
-                onTap: () => _onVendorTap(vendor),
-                child: Container(
-                  width: 90,
-                  margin: const EdgeInsets.only(right: 10),
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: isSelected
-                        ? const LinearGradient(
-                            colors: [Color(0xFF21C8F6), Color(0xFF637BFF)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
-                        : null,
-                    color: !isSelected ? Colors.white.withOpacity(0.04) : null,
-                    border: Border.all(
-                      color: isSelected
-                          ? Colors.white.withOpacity(0.9)
-                          : Colors.white.withOpacity(0.08),
-                      width: isSelected ? 1.4 : 1.0,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: AspectRatio(
-                            aspectRatio: 1,
-                            child: Container(
-                              color: Colors.black.withOpacity(0.3),
-                              alignment: Alignment.center,
-                              child: _networkImageSmart(
-                                url: logoUrl,
-                                fit: BoxFit.contain,
-                                padding: const EdgeInsets.all(10),
-                                iconSize: 28,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        vendor.vendorName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.white70,
-                          fontSize: 11,
-                          fontWeight:
-                              isSelected ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAllVendorCard() {
-    final bool isSelected =
-        (_selectedVendorCode ?? _allVendorCode) == _allVendorCode;
-
-    return GestureDetector(
-      onTap: _onAllTap,
-      child: Container(
-        width: 90,
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: isSelected
-              ? const LinearGradient(
-                  colors: [Color(0xFF21C8F6), Color(0xFF637BFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-          color: !isSelected ? Colors.white.withOpacity(0.04) : null,
-          border: Border.all(
-            color: isSelected
-                ? Colors.white.withOpacity(0.9)
-                : Colors.white.withOpacity(0.08),
-            width: isSelected ? 1.4 : 1.0,
-          ),
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 1,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.3),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.apps_rounded,
-                      size: 34,
-                      color: Colors.white.withOpacity(isSelected ? 1.0 : 0.75),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'ALL',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
           ],
         ),
       ),
@@ -868,7 +877,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       itemBuilder: (context, index) {
         final game = _games[index];
         return GestureDetector(
-          onTap: () => _onGameTap(game),
+          onTap: () => _fire(_onGameTap(game)),
           child: _buildGameCard(game),
         );
       },
@@ -876,7 +885,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
   }
 
   Widget _buildGameCard(GameModel game) {
-    // ✅ normalize relative or svg links
     final imgUrl = _normalizeImageUrl(game.displayImageUrl);
 
     return Container(
@@ -892,7 +900,8 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         children: [
           Expanded(
             child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(16)),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -901,7 +910,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                     alignment: Alignment.center,
                     child: _networkImageSmart(
                       url: imgUrl,
-                      fit: BoxFit.contain, // ✅ no crop (sports 75x72 fits)
+                      fit: BoxFit.contain,
                       padding: const EdgeInsets.all(8),
                       iconSize: 32,
                     ),
@@ -911,9 +920,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                     child: Container(
                       margin: const EdgeInsets.all(6),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.5),
                         borderRadius: BorderRadius.circular(999),

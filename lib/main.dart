@@ -14,6 +14,9 @@ import 'services/analytics/appsflyer_service.dart';
 // ✅ Poller boot (starts polling if pending INV refs exist)
 import 'services/deposit/appsflyer_deposit_poller_service.dart';
 
+// ✅ NEW: Operator code boot
+import 'services/operator_code_service.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -22,6 +25,9 @@ Future<void> main() async {
 
   // ✅ Start AppsFlyer once (global)
   await AppsFlyerService.instance.init();
+
+  // ✅ NEW: Fetch + store operator_code once on app start (only if missing)
+  await OperatorCodeService.instance.boot();
 
   // ✅ Cold start: try boot once (if any pending references exist)
   await AppsFlyerDepositPollerService.instance.boot();
@@ -36,8 +42,7 @@ class IGamingApp extends StatefulWidget {
   State<IGamingApp> createState() => _IGamingAppState();
 }
 
-class _IGamingAppState extends State<IGamingApp>
-    with WidgetsBindingObserver {
+class _IGamingAppState extends State<IGamingApp> with WidgetsBindingObserver {
   Timer? _resumeDebounce;
 
   @override
@@ -56,12 +61,9 @@ class _IGamingAppState extends State<IGamingApp>
   /// Called on app lifecycle changes (minimize / resume etc.)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // When user minimizes and comes back -> state becomes "resumed"
     if (state == AppLifecycleState.resumed) {
-      // ✅ Debounce: prevents multiple resume triggers firing fast
       _resumeDebounce?.cancel();
       _resumeDebounce = Timer(const Duration(milliseconds: 450), () async {
-        // ✅ On resume: boot again, it will continue polling only if pending refs exist
         await AppsFlyerDepositPollerService.instance.boot();
       });
     }

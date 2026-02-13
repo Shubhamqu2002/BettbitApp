@@ -144,7 +144,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     final currentVersion = pkg.version;
 
     final detailsUrl = dotenv.env['APK_VERSION_DETAILS_URL'] ??
-        'https://api.nexxorra.com/file/apk/version/details';
+        'https://api.bettbit.com/file/apk/version/details';
 
     final service = UpdateService(detailsUrl: detailsUrl);
     final result = await service.checkForUpdate();

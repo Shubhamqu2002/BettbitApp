@@ -13,6 +13,9 @@ import '../util/token_manager.dart';
 // ✅ APPSFLYER
 import 'analytics/appsflyer_service.dart';
 
+// ✅ NEW: operator code service
+import 'operator_code_service.dart';
+
 class RegisterService {
   static final String _baseUrl =
       dotenv.env['AUTH_BASE_URL'] ??
@@ -28,29 +31,26 @@ class RegisterService {
 
   static const String _geoUrl = 'https://ipwho.is/';
 
-  // ✅ cache geo (avoid repeated calls)
   static Map<String, dynamic>? _geoCache;
 
   static const String _mascotBankGroupId = "PU4012_Nexxorra_INR";
   static const int _mascotRpcId = 1928822491;
   static const String _torrospinBirthdateHardcoded = "1990-01-01";
 
-  // ✅ NEW: hardcoded platform code query param for patch call
-  static const String _platformCodeHardcoded = "QN2570";
+  // ✅ Fallback only (if operator code not available)
+  static const String _platformCodeFallback = "QN2570";
 
   String _shortBody(String body, {int limit = 400}) {
     if (body.length <= limit) return body;
     return "${body.substring(0, limit)}...";
   }
 
-  /// Normalize calling code: "880" -> "+880"
   String _normalizeCallingCode(String raw) {
     final v = raw.trim();
     if (v.isEmpty) return "+91";
     return v.startsWith("+") ? v : "+$v";
   }
 
-  /// Normalize phone → +<cc><last10digits>
   String normalizePhoneWithCallingCode(String input, String callingCode) {
     var v = input.trim().replaceAll(' ', '').replaceAll('-', '');
 
@@ -66,7 +66,6 @@ class RegisterService {
     return normalized;
   }
 
-  /// ✅ Fetch geo info (country_code, country, currency, calling_code)
   Future<Map<String, dynamic>> fetchGeoInfo({bool forceRefresh = false}) async {
     if (!forceRefresh && _geoCache != null) {
       debugPrint("🌍 [GEO] Using cached geo => $_geoCache");
@@ -141,8 +140,18 @@ class RegisterService {
     required String registrationType, // EMAIL / PHONE
     required String callingCode,
     String middleName = '',
-    String platformCode = 'PU4012',
+    String platformCode = 'PU4012', // keep as-is (fallback chain uses stored first)
   }) async {
+    // ✅ Ensure operator code exists (only fetch now if missing)
+    final storedOperatorCode =
+        await OperatorCodeService.instance.getOrFetchOperatorCode();
+
+    final effectivePlatformCode = storedOperatorCode.trim().isNotEmpty
+        ? storedOperatorCode.trim()
+        : (platformCode.trim().isNotEmpty ? platformCode.trim() : _platformCodeFallback);
+
+    debugPrint("🟨 [REGISTER] effectivePlatformCode => $effectivePlatformCode");
+
     final token = await TokenManager().getValidToken();
     if (token == null || token.isEmpty) {
       throw Exception('Unable to generate authorization token');
@@ -172,7 +181,7 @@ class RegisterService {
       "number": encryptedNumber,
       "password": encryptedPassword,
       "countryCode": countryCode,
-      "platformCode": platformCode,
+      "platformCode": effectivePlatformCode, // ✅ dynamic (stored) or fallback
       "firstName": firstName,
       "middleName": middleName,
       "lastName": lastName,
@@ -180,7 +189,7 @@ class RegisterService {
       "gender": gender,
       "country": country,
       "source": "Mobile",
-      "registrationType": registrationType, // EMAIL / PHONE
+      "registrationType": registrationType,
     };
 
     debugPrint('➡️ [REGISTER] URL: $url');
@@ -215,19 +224,19 @@ class RegisterService {
     await AppsFlyerService.instance.logEvent(
       "af_complete_registration",
       {
-        "af_registration_method": registrationType.toLowerCase(), // email / phone
+        "af_registration_method": registrationType.toLowerCase(),
         "country_code": countryCode,
-        "platform_code": platformCode,
+        "platform_code": effectivePlatformCode, // ✅ use the same final code
       },
     );
 
-    // ✅ username from response
     final userName = (data['userName'] ?? '').toString().trim();
 
-    // ✅ grab AppsFlyer UID (agencyId) and fire PATCH (do NOT wait)
+    // ✅ PATCH after registration (do NOT wait)
     unawaited(_firePlatformCodePatchAfterRegistration(
       userName: userName,
       token: token,
+      platformCode: effectivePlatformCode, // ✅ pass dynamic code
     ));
 
     final prefs = await SharedPreferences.getInstance();
@@ -243,11 +252,11 @@ class RegisterService {
     return data;
   }
 
-  /// ✅ NEW: Fire-and-leave PATCH call
-  /// PATCH /api/gamer/by-username/{username}/platform-code?code=PU4015&agencyId=<APPSFLYER_UID>
+  /// ✅ PATCH /api/gamer/by-username/{username}/platform-code?code=<OPERATOR>&agencyId=<AF_UID>
   Future<void> _firePlatformCodePatchAfterRegistration({
     required String userName,
     required String token,
+    required String platformCode,
   }) async {
     try {
       if (userName.trim().isEmpty) {
@@ -263,14 +272,17 @@ class RegisterService {
         return;
       }
 
+      final finalCode = platformCode.trim().isNotEmpty ? platformCode.trim() : _platformCodeFallback;
+
       final uri = Uri.parse(
         '$_baseUrl/api/gamer/by-username/$userName/platform-code',
       ).replace(queryParameters: {
-        'code': _platformCodeHardcoded, // ✅ hardcoded
-        'agencyId': agencyId,           // ✅ AppsFlyer UID
+        'code': finalCode,
+        'agencyId': agencyId,
       });
 
       debugPrint('➡️ [PATCH][PLATFORM] URL: $uri');
+      debugPrint('🏷️ [PATCH][PLATFORM] code: $finalCode');
       debugPrint('🔐 [PATCH][PLATFORM] agencyId(AF UID): $agencyId');
 
       final res = await http.patch(
@@ -279,7 +291,7 @@ class RegisterService {
           'Authorization': token,
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({}), // curl had no body; keep safe empty JSON
+        body: jsonEncode({}),
       );
 
       debugPrint(

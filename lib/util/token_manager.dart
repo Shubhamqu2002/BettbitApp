@@ -35,7 +35,7 @@ class TokenManager {
   }
 
   Future<String?> _generateToken() async {
-    final url = Uri.parse('https://api.nexxorra.com/generate/token');
+    final url = Uri.parse('https://api.bettbit.com/generate/token');
 
     try {
       final response = await http.post(

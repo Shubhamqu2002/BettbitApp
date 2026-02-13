@@ -11,7 +11,7 @@ class DashboardHeader extends StatefulWidget implements PreferredSizeWidget {
   final VoidCallback onLogoutTap;
   final VoidCallback onMenuTap;
 
-  /// Platform / brand for UI: "TORROSPIN" or "MASCOT"
+  /// Platform / brand for UI: "ALL" or "TORROSPIN" or "MASCOT"
   final String selectedPlatform;
   final ValueChanged<String> onPlatformChanged;
 
@@ -43,25 +43,40 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   void initState() {
     super.initState();
     _logoUrlFuture = _brandService.fetchLogoUrl();
+
+    // ✅ Make ALL default (only if parent didn't pass anything valid)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final p = widget.selectedPlatform.trim().toUpperCase();
+      if (p.isEmpty || (p != 'ALL' && p != 'TORROSPIN' && p != 'MASCOT')) {
+        widget.onPlatformChanged('ALL');
+      }
+    });
   }
 
   String get _platformLabel {
-    if (widget.selectedPlatform.toUpperCase() == 'MASCOT') return 'Mascot';
-    return 'Torrospin';
+    final p = widget.selectedPlatform.toUpperCase();
+    if (p == 'MASCOT') return 'Mascot';
+    if (p == 'TORROSPIN') return 'Torrospin';
+    return 'All';
   }
 
   IconData get _platformIcon {
-    if (widget.selectedPlatform.toUpperCase() == 'MASCOT') {
-      return Icons.sports_esports_rounded;
-    }
-    return Icons.casino_rounded;
+    final p = widget.selectedPlatform.toUpperCase();
+    if (p == 'MASCOT') return Icons.sports_esports_rounded;
+    if (p == 'TORROSPIN') return Icons.casino_rounded;
+    return Icons.apps_rounded; // ✅ ALL icon
   }
 
   List<Color> get _platformGradient {
-    if (widget.selectedPlatform.toUpperCase() == 'MASCOT') {
+    final p = widget.selectedPlatform.toUpperCase();
+    if (p == 'MASCOT') {
       return [const Color(0xFFFF6584), const Color(0xFFFF7B9C)];
     }
-    return [const Color(0xFF00C9A7), const Color(0xFF00D4FF)];
+    if (p == 'TORROSPIN') {
+      return [const Color(0xFF00C9A7), const Color(0xFF00D4FF)];
+    }
+    // ✅ ALL gradient (neutral premium purple)
+    return [const Color(0xFF7C3AED), const Color(0xFF22D3EE)];
   }
 
   /// ✅ Slightly BIGGER logo (width + height increased)
@@ -131,7 +146,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 constraints: const BoxConstraints(),
               ),
             ),
-
             Expanded(
               child: FutureBuilder<String?>(
                 future: _logoUrlFuture,
@@ -149,7 +163,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           ],
         ),
       ),
-
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -191,6 +204,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 ),
                 offset: const Offset(0, 44),
                 itemBuilder: (context) => [
+                  // ✅ NEW: ALL option
+                  PopupMenuItem(
+                    value: 'ALL',
+                    padding: EdgeInsets.zero,
+                    child: _platformItem(
+                      icon: Icons.apps_rounded,
+                      label: 'All',
+                      gradient: const [
+                        Color(0xFF7C3AED),
+                        Color(0xFF22D3EE),
+                      ],
+                      selected: widget.selectedPlatform.toUpperCase() == 'ALL',
+                    ),
+                  ),
+                  const PopupMenuDivider(height: 1),
                   PopupMenuItem(
                     value: 'TORROSPIN',
                     padding: EdgeInsets.zero,

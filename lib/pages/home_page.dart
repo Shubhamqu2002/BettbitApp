@@ -1,4 +1,3 @@
-// lib/pages/home_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,8 +17,9 @@ import '../components/vendors/vendor_games_section.dart';
 
 import '../services/auth_service.dart';
 import '../services/wallet_service.dart';
-import 'login_page.dart';
+import '../services/game_categories_service.dart';
 
+import 'login_page.dart';
 import 'my_account_page.dart';
 import 'deposit_page.dart';
 import 'withdraw_page.dart';
@@ -57,16 +57,21 @@ class _HomePageState extends State<HomePage> {
   Timer? _balanceTimer;
   bool _isFetchingBalance = false;
 
-  String _selectedPlatform = 'TORROSPIN';
+  String _selectedPlatform = 'ALL';
   String _selectedCategory = 'ALL';
 
   bool _isRefreshing = false;
+
+  // ✅ NEW: Categories from API
+  final List<GameCategoryItem> _apiCategories = [];
+  bool _isLoadingCategories = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserAndBalance();
     _startBalancePolling();
+    _loadCategories();
   }
 
   void _startBalancePolling() {
@@ -129,12 +134,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _loadCategories() async {
+    if (_isLoadingCategories) return;
+    setState(() => _isLoadingCategories = true);
+
+    try {
+      final items = await GameCategoriesService.instance.fetchCategories();
+
+      if (!mounted) return;
+      setState(() {
+        _apiCategories
+          ..clear()
+          ..addAll(items);
+
+        // ✅ If current selected category doesn't exist anymore, fallback
+        final exists = _apiCategories.any((e) => e.categoryName == _selectedCategory);
+        if (!exists && _selectedCategory != 'ALL') {
+          _selectedCategory = 'ALL';
+        }
+      });
+    } catch (_) {
+      // silent (keep UI working)
+    } finally {
+      if (mounted) setState(() => _isLoadingCategories = false);
+    }
+  }
+
   Future<void> _onPullToRefresh() async {
     if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
 
     try {
-      await _loadUserAndBalance();
+      await Future.wait([
+        _loadUserAndBalance(),
+        _loadCategories(),
+      ]);
     } catch (_) {
       // silent
     } finally {
@@ -182,44 +216,70 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  Widget _buildCategoryTabs() {
-    final tabs = [
-      {'name': 'ALL', 'icon': Icons.apps_rounded},
-      {'name': 'HOT', 'icon': Icons.local_fire_department_rounded},
-      {'name': 'SPORTS', 'icon': Icons.sports_soccer_rounded},
-      {'name': 'SLOT', 'icon': Icons.casino_rounded},
-      {'name': 'CASINO', 'icon': Icons.style_rounded},
-      {'name': 'TABLE', 'icon': Icons.table_restaurant_rounded},
-      {'name': 'BINGO', 'icon': Icons.grid_on_rounded},
-      {'name': 'TOURNEY', 'icon': Icons.emoji_events_rounded},
+  /// ✅ Build tabs list:
+  /// Keep "ALL" first (app logic expects it), rest from API by sequence
+  List<_UiTabItem> _buildTabsFromApi() {
+    final tabs = <_UiTabItem>[
+      const _UiTabItem(
+        name: 'ALL',
+        label: 'ALL',
+        imageUrl: '', // no api image for ALL
+      ),
+      ..._apiCategories.map((e) {
+        return _UiTabItem(
+          name: e.categoryName,
+          label: e.uiLabel.toUpperCase(),
+          imageUrl: e.fullImageUrl, // ✅ https://bettbit.com/ + imageUrl
+        );
+      }),
     ];
 
-    return Container(
-      height: 56,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(
-          children: List.generate(tabs.length, (index) {
-            final tab = tabs[index];
-            final tabName = tab['name'] as String;
-            final tabIcon = tab['icon'] as IconData;
-            final bool isSelected = _selectedCategory == tabName;
+    // avoid duplicate if API someday sends ALL
+    final seen = <String>{};
+    return tabs.where((t) {
+      if (seen.contains(t.name)) return false;
+      seen.add(t.name);
+      return true;
+    }).toList();
+  }
 
-            return Padding(
-              padding:
-                  EdgeInsets.only(right: index == tabs.length - 1 ? 0 : 10),
-              child: _CategoryTab(
-                label: tabName,
-                icon: tabIcon,
-                isSelected: isSelected,
-                onTap: () => _onCategoryChanged(tabName),
+  Widget _buildCategoryTabs() {
+    final tabs = _buildTabsFromApi();
+
+    return Container(
+      height: 60,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: _isLoadingCategories && _apiCategories.isEmpty
+          ? Row(
+              children: const [
+                Expanded(
+                  child: Opacity(
+                    opacity: 0.9,
+                    child: BrandedLoader(brandName: 'Bettbit', size: 36),
+                  ),
+                ),
+              ],
+            )
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: List.generate(tabs.length, (index) {
+                  final tab = tabs[index];
+                  final bool isSelected = _selectedCategory == tab.name;
+
+                  return Padding(
+                    padding: EdgeInsets.only(right: index == tabs.length - 1 ? 0 : 10),
+                    child: _CategoryTab(
+                      label: tab.label,
+                      imageUrl: tab.imageUrl,
+                      isSelected: isSelected,
+                      onTap: () => _onCategoryChanged(tab.name),
+                    ),
+                  );
+                }),
               ),
-            );
-          }),
-        ),
-      ),
+            ),
     );
   }
 
@@ -243,32 +303,27 @@ class _HomePageState extends State<HomePage> {
 
   void _goToMyAccount() {
     Navigator.pop(context);
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const MyAccountPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyAccountPage()));
   }
 
   void _goToDeposit() {
     Navigator.pop(context);
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const DepositPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DepositPage()));
   }
 
   void _goToWithdraw() {
     Navigator.pop(context);
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const WithdrawPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WithdrawPage()));
   }
 
   void _goToAccountRecords() {
     Navigator.pop(context);
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const AccountRecordsPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountRecordsPage()));
   }
 
   void _goToBettingRecords() {
     Navigator.pop(context);
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const BettingRecordsPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BettingRecordsPage()));
   }
 
   @override
@@ -362,15 +417,27 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+/// small helper for UI tabs
+class _UiTabItem {
+  final String name;     // actual category key used in logic
+  final String label;    // display text
+  final String imageUrl; // full url (https://bettbit.com/...)
+  const _UiTabItem({
+    required this.name,
+    required this.label,
+    required this.imageUrl,
+  });
+}
+
 class _CategoryTab extends StatelessWidget {
   final String label;
-  final IconData icon;
+  final String imageUrl; // ✅ now image instead of icon
   final bool isSelected;
   final VoidCallback onTap;
 
   const _CategoryTab({
     required this.label,
-    required this.icon,
+    required this.imageUrl,
     required this.isSelected,
     required this.onTap,
   });
@@ -380,6 +447,14 @@ class _CategoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bg = isSelected
+        ? const LinearGradient(
+            colors: [primaryAccent, secondaryAccent],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+        : null;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -387,40 +462,27 @@ class _CategoryTab extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            gradient: isSelected
-                ? const LinearGradient(
-                    colors: [primaryAccent, secondaryAccent],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
+            gradient: bg,
             color: isSelected ? null : Colors.white.withOpacity(0.08),
             border: Border.all(
               color: isSelected
-                  ? Colors.white.withOpacity(0.2)
-                  : Colors.white.withOpacity(0.1),
+                  ? Colors.white.withOpacity(0.20)
+                  : Colors.white.withOpacity(0.10),
               width: 1,
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 18,
-                color:
-                    isSelected ? Colors.white : Colors.white.withOpacity(0.7),
-              ),
+              _TabIcon(imageUrl: imageUrl, isSelected: isSelected),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected
-                      ? Colors.white
-                      : Colors.white.withOpacity(0.8),
+                  color: isSelected ? Colors.white : Colors.white.withOpacity(0.85),
                   fontSize: 13,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                   letterSpacing: 0.3,
@@ -428,6 +490,61 @@ class _CategoryTab extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TabIcon extends StatelessWidget {
+  final String imageUrl;
+  final bool isSelected;
+
+  const _TabIcon({required this.imageUrl, required this.isSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    // ✅ If imageUrl empty (ALL tab), keep a small fallback icon (only here)
+    if (imageUrl.isEmpty) {
+      return Icon(
+        Icons.apps_rounded,
+        size: 18,
+        color: isSelected ? Colors.white : Colors.white.withOpacity(0.75),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 20,
+        height: 20,
+        color: Colors.white.withOpacity(isSelected ? 0.14 : 0.10),
+        alignment: Alignment.center,
+        child: Image.network(
+          imageUrl,
+          width: 18,
+          height: 18,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) {
+            return Icon(
+              Icons.image_not_supported_outlined,
+              size: 16,
+              color: Colors.white.withOpacity(0.65),
+            );
+          },
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Colors.white.withOpacity(0.75),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
