@@ -5,6 +5,7 @@ import '../components/gradient_background.dart';
 // import '../components/withdrawl/cash_withdraw_page.dart'; // ✅ COMMENTED (Cash hidden)
 import '../components/withdrawl/billblend_imps_withdraw_page.dart';
 import '../components/withdrawl/gpt_withdraw_page.dart';
+import '../components/withdrawl/passimpay_withdraw_page.dart';
 
 import '../models/withdrawal_method_item.dart';
 import '../services/withdrawl/withdrawal_methods_service.dart';
@@ -51,10 +52,12 @@ class _WithdrawPageState extends State<WithdrawPage> {
       final cc = (prefs.getString('registered_country') ?? 'IN').trim();
       final cur = (prefs.getString('currency') ?? 'INR').trim();
 
-      _country = cc.isEmpty ? "IN" : cc;
-      _currency = cur.isEmpty ? "INR" : cur;
+      _country = cc.isEmpty ? "IN" : cc.toUpperCase();
+      _currency = cur.isEmpty ? "INR" : cur.toUpperCase();
 
-      final list = await _methodsService.fetchWithdrawalMethods(countryCode: _country);
+      final list = await _methodsService.fetchWithdrawalMethods(
+        countryCode: _country,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -68,6 +71,18 @@ class _WithdrawPageState extends State<WithdrawPage> {
         _loading = false;
       });
     }
+  }
+
+  bool _isGptUpiMethod(WithdrawalMethodItem it) {
+    final provider = it.provider.trim().toUpperCase();
+    final key = it.withdrawalKey.trim().toUpperCase();
+    return provider == "GPT" && key == "UPI";
+  }
+
+  bool _isPassimpayMethod(WithdrawalMethodItem it) {
+    final provider = it.provider.trim().toUpperCase();
+    final key = it.withdrawalKey.trim().toUpperCase();
+    return provider == "PASSIMPAY" && key == "PASSIMPAY";
   }
 
   void _openDynamicMethod(WithdrawalMethodItem it) {
@@ -98,12 +113,30 @@ class _WithdrawPageState extends State<WithdrawPage> {
       return;
     }
 
-    if (key == "UPI") {
+    if (_isGptUpiMethod(it)) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => GradientBackground(
             child: GptWithdrawPage(
+              withdrawalMethod: it.withdrawalMethod,
+              withdrawalKey: it.withdrawalKey,
+              methodCode: it.methodCode,
+              minWithdrawal: it.minWithdrawal,
+              maxWithdrawal: it.maxWithdrawal,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (_isPassimpayMethod(it)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GradientBackground(
+            child: PassimpayWithdrawPage(
               withdrawalMethod: it.withdrawalMethod,
               withdrawalKey: it.withdrawalKey,
               methodCode: it.methodCode,
@@ -122,7 +155,10 @@ class _WithdrawPageState extends State<WithdrawPage> {
   void _toast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+        content: Text(
+          msg,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.red.shade600,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -143,7 +179,11 @@ class _WithdrawPageState extends State<WithdrawPage> {
           foregroundColor: Colors.white,
           title: const Text(
             "Withdraw",
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20, letterSpacing: -0.5),
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              letterSpacing: -0.5,
+            ),
           ),
           leading: Padding(
             padding: const EdgeInsets.all(8),
@@ -159,7 +199,10 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 onTap: _loading ? null : _boot,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(12),
@@ -167,7 +210,11 @@ class _WithdrawPageState extends State<WithdrawPage> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.refresh_rounded, color: Colors.white.withOpacity(0.85), size: 18),
+                      Icon(
+                        Icons.refresh_rounded,
+                        color: Colors.white.withOpacity(0.85),
+                        size: 18,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         _country,
@@ -202,7 +249,6 @@ class _WithdrawPageState extends State<WithdrawPage> {
                       [
                         _TopHeader(currency: _currency, country: _country),
                         const SizedBox(height: 28),
-
                         Text(
                           "Withdrawal Methods",
                           style: TextStyle(
@@ -224,33 +270,6 @@ class _WithdrawPageState extends State<WithdrawPage> {
                         ),
                         const SizedBox(height: 24),
 
-                        // ✅ COMMENTED: CASH first always
-                        // _MethodTile(
-                        //   title: cashMethod,
-                        //   subtitle:
-                        //       "Min ${cashMin.toStringAsFixed(0)} • Max ${cashMax.toStringAsFixed(0)}",
-                        //   icon: Icons.payments_rounded,
-                        //   badgeText: "Instant",
-                        //   badgeColor: successAccent,
-                        //   ctaText: "Withdraw Now",
-                        //   onTap: () {
-                        //     Navigator.push(
-                        //       context,
-                        //       MaterialPageRoute(
-                        //         builder: (_) => GradientBackground(
-                        //           child: CashWithdrawPage(
-                        //             withdrawalMethod: cashMethod,
-                        //             withdrawalKey: cashKey,
-                        //             minWithdrawal: cashMin,
-                        //             maxWithdrawal: cashMax,
-                        //           ),
-                        //         ),
-                        //       ),
-                        //     );
-                        //   },
-                        // ),
-                        // const SizedBox(height: 18),
-
                         if (_loading)
                           _LoadingBox()
                         else if (_error != null)
@@ -259,7 +278,10 @@ class _WithdrawPageState extends State<WithdrawPage> {
                             onRetry: _boot,
                           )
                         else if (_items.isEmpty)
-                          _InfoBox(text: "No withdrawal methods available for $_country")
+                          _InfoBox(
+                            text:
+                                "No withdrawal methods available for $_country",
+                          )
                         else
                           ..._items.map((it) {
                             return Padding(
@@ -270,9 +292,13 @@ class _WithdrawPageState extends State<WithdrawPage> {
                                     "Min ${it.minWithdrawal.toStringAsFixed(0)} • Max ${it.maxWithdrawal.toStringAsFixed(0)}",
                                 icon: it.provider.toUpperCase() == "GPT"
                                     ? Icons.cloud_done_rounded
-                                    : Icons.account_balance_rounded,
+                                    : it.provider.toUpperCase() == "PASSIMPAY"
+                                        ? Icons.currency_bitcoin_rounded
+                                        : Icons.account_balance_rounded,
                                 badgeText: it.provider.toUpperCase(),
-                                badgeColor: primaryAccent,
+                                badgeColor: it.provider.toUpperCase() == "PASSIMPAY"
+                                    ? successAccent
+                                    : primaryAccent,
                                 ctaText: "Open",
                                 onTap: () => _openDynamicMethod(it),
                               ),
@@ -293,7 +319,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
   }
 }
 
-/* ---------------- UI Components (same style system) ---------------- */
+/* ---------------- UI Components ---------------- */
 
 class _IconButton extends StatelessWidget {
   final IconData icon;
@@ -311,7 +337,10 @@ class _IconButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.15),
+              width: 1,
+            ),
           ),
           child: Center(child: Icon(icon, color: Colors.white, size: 20)),
         ),
@@ -342,7 +371,9 @@ class _TopHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [primaryAccent, secondaryAccent]),
+              gradient: const LinearGradient(
+                colors: [primaryAccent, secondaryAccent],
+              ),
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
@@ -352,7 +383,11 @@ class _TopHeader extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.outbox_rounded, color: Colors.white, size: 28),
+            child: const Icon(
+              Icons.outbox_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -461,11 +496,17 @@ class _MethodTile extends StatelessWidget {
                           ),
                           const SizedBox(width: 10),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
                             decoration: BoxDecoration(
                               color: badgeColor.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: badgeColor.withOpacity(0.3), width: 1),
+                              border: Border.all(
+                                color: badgeColor.withOpacity(0.3),
+                                width: 1,
+                              ),
                             ),
                             child: Text(
                               badgeText,
@@ -507,11 +548,19 @@ class _MethodTile extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [badgeColor.withOpacity(0.15), badgeColor.withOpacity(0.08)],
+                    colors: [
+                      badgeColor.withOpacity(0.15),
+                      badgeColor.withOpacity(0.08),
+                    ],
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   ),
-                  border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08), width: 1)),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withOpacity(0.08),
+                      width: 1,
+                    ),
+                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -528,7 +577,11 @@ class _MethodTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Icon(Icons.arrow_forward_rounded, color: badgeColor, size: 18),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color: badgeColor,
+                      size: 18,
+                    ),
                   ],
                 ),
               ),
@@ -552,12 +605,20 @@ class _LoadingBox extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          const SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
               "Loading withdrawal methods...",
-              style: TextStyle(color: Colors.white.withOpacity(0.75), fontWeight: FontWeight.w600, fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.75),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -587,7 +648,11 @@ class _ErrorBox extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(color: Colors.white.withOpacity(0.8), fontWeight: FontWeight.w600, fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -603,7 +668,10 @@ class _ErrorBox extends StatelessWidget {
               ),
               child: Text(
                 "Retry",
-                style: TextStyle(color: Colors.white.withOpacity(0.85), fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.85),
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -628,12 +696,19 @@ class _InfoBox extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline_rounded, color: Colors.white.withOpacity(0.75)),
+          Icon(
+            Icons.info_outline_rounded,
+            color: Colors.white.withOpacity(0.75),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
               text,
-              style: TextStyle(color: Colors.white.withOpacity(0.75), fontWeight: FontWeight.w600, fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.75),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
         ],

@@ -29,7 +29,6 @@ class BettingRecordsTable extends StatefulWidget {
 class _BettingRecordsTableState extends State<BettingRecordsTable> {
   final Set<String> _expandedIds = <String>{};
 
-  // Elegant color palette
   static const Color primaryAccent = Color(0xFF6366F1);
   static const Color secondaryAccent = Color(0xFF8B5CF6);
   static const Color successAccent = Color(0xFF10B981);
@@ -189,7 +188,6 @@ class _BettingRecordsTableState extends State<BettingRecordsTable> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Records List
         Expanded(
           child: Container(
             decoration: BoxDecoration(
@@ -224,10 +222,7 @@ class _BettingRecordsTableState extends State<BettingRecordsTable> {
             ),
           ),
         ),
-
         const SizedBox(height: 16),
-
-        // Pagination footer
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
@@ -373,10 +368,8 @@ class _RecordCard extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             child: Column(
               children: [
-                // Main Row
                 Row(
                   children: [
-                    // Status Indicator
                     Container(
                       width: 4,
                       height: 60,
@@ -393,13 +386,10 @@ class _RecordCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-
-                    // Content
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Game Name & Badge
                           Row(
                             children: [
                               Expanded(
@@ -441,8 +431,6 @@ class _RecordCard extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 8),
-
-                          // Date & Amounts
                           Row(
                             children: [
                               Icon(
@@ -466,11 +454,16 @@ class _RecordCard extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 6),
-
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
                               children: [
+                                _InfoChip(
+                                  label: 'Balance Before',
+                                  value: formatAmount(record, record.balanceBefore),
+                                  color: Colors.purple.shade400,
+                                ),
+                                const SizedBox(width: 8),
                                 _InfoChip(
                                   label: 'Bet',
                                   value: formatAmount(record, record.betAmount),
@@ -488,10 +481,7 @@ class _RecordCard extends StatelessWidget {
                         ],
                       ),
                     ),
-
                     const SizedBox(width: 8),
-
-                    // Expand Icon
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -510,8 +500,6 @@ class _RecordCard extends StatelessWidget {
                     ),
                   ],
                 ),
-
-                // Expanded Details
                 if (isExpanded) ...[
                   const SizedBox(height: 16),
                   _ExpandedDetails(
@@ -610,7 +598,7 @@ class _ExpandedDetails extends StatelessWidget {
           _DetailRow(label: 'Trace ID', value: record.traceId),
           _DetailRow(label: 'Bet ID', value: record.betId),
           _DetailRow(label: 'Round ID', value: record.roundId),
-          
+
           const SizedBox(height: 16),
           _SectionTitle(title: 'Game Information', accent: accent),
           const SizedBox(height: 12),
@@ -618,10 +606,14 @@ class _ExpandedDetails extends StatelessWidget {
           _DetailRow(label: 'Vendor', value: record.vendorCode),
           _DetailRow(label: 'Game Type', value: record.gameType ?? '--'),
           _DetailRow(label: 'Platform', value: record.platformCode),
-          
+
           const SizedBox(height: 16),
           _SectionTitle(title: 'Financial Summary', accent: accent),
           const SizedBox(height: 12),
+          _DetailRow(
+            label: 'Balance Before',
+            value: formatAmount(record, record.balanceBefore),
+          ),
           _DetailRow(
             label: 'Bet Amount',
             value: formatAmount(record, record.betAmount),
@@ -646,7 +638,7 @@ class _ExpandedDetails extends StatelessWidget {
             label: 'Bonus Balance',
             value: formatAmount(record, record.currentBonusBalance),
           ),
-          
+
           if ((record.remarks ?? '').isNotEmpty) ...[
             const SizedBox(height: 16),
             _SectionTitle(title: 'Remarks', accent: accent),

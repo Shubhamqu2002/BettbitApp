@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../components/gradient_background.dart';
 import '../components/login/login_method_tabs.dart';
@@ -52,6 +53,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   final OtpService _otpService = OtpService();
   final BrandService _brandService = BrandService();
   Future<String?>? _logoUrlFuture;
+
+  // ✅ Same key used in main.dart deep link gating
+  static const String _kPendingDeepLinkRoute = "pending_deeplink_route";
 
   @override
   void initState() {
@@ -158,6 +162,33 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ NEW: Navigate based on pending deep link (if any)
+  Future<void> _navigateAfterLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Safety: confirm login state really stored
+    final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
+    final gamerId = (prefs.getString('gamer_id') ?? '').trim();
+
+    if (!isLoggedIn || gamerId.isEmpty) {
+      // If for any reason prefs not set, stay on login
+      _showSnack("Login session not saved. Please try again.");
+      return;
+    }
+
+    final pending = (prefs.getString(_kPendingDeepLinkRoute) ?? '').trim();
+
+    if (pending.isNotEmpty) {
+      await prefs.remove(_kPendingDeepLinkRoute);
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, pending, (r) => false);
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, HomePage.routeName, (r) => false);
+  }
+
   Future<void> _handleEmailLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -178,7 +209,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       if (!mounted) return;
       _showSnack("Login successful", success: true);
-      Navigator.pushReplacementNamed(context, HomePage.routeName);
+
+      // ✅ changed: go to pending route if exists, else home
+      await _navigateAfterLogin();
     } catch (e) {
       _showSnack(_cleanMessage(e));
     } finally {
@@ -262,7 +295,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       if (!mounted) return;
       _showSnack("Login successful", success: true);
-      Navigator.pushReplacementNamed(context, HomePage.routeName);
+
+      // ✅ changed: go to pending route if exists, else home
+      await _navigateAfterLogin();
     } catch (e) {
       _showSnack(_cleanMessage(e));
     } finally {
@@ -290,12 +325,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00C9A7).withOpacity(0.4 * _glowAnimation.value),
+                    color: const Color(0xFF00C9A7)
+                        .withOpacity(0.4 * _glowAnimation.value),
                     blurRadius: 60 * _glowAnimation.value,
                     spreadRadius: 20 * _glowAnimation.value,
                   ),
                   BoxShadow(
-                    color: Colors.cyanAccent.withOpacity(0.2 * _glowAnimation.value),
+                    color: Colors.cyanAccent
+                        .withOpacity(0.2 * _glowAnimation.value),
                     blurRadius: 80 * _glowAnimation.value,
                     spreadRadius: 10 * _glowAnimation.value,
                   ),
@@ -343,7 +380,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildFloatingOrb(double top, double left, double size, Color color) {
+  Widget _buildFloatingOrb(
+      double top, double left, double size, Color color) {
     return Positioned(
       top: top,
       left: left,
@@ -402,7 +440,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             SafeArea(
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
                   child: FadeTransition(
                     opacity: _fadeAnimation,
                     child: SlideTransition(
@@ -416,12 +455,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             children: [
                               // Logo with glow effect
                               _logoWidget(),
-                              
+
                               const SizedBox(height: 40),
 
                               // Welcome text with gradient
                               ShaderMask(
-                                shaderCallback: (bounds) => const LinearGradient(
+                                shaderCallback: (bounds) =>
+                                    const LinearGradient(
                                   colors: [
                                     Color(0xFF00C9A7),
                                     Colors.cyanAccent,
@@ -466,7 +506,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                   borderRadius: BorderRadius.circular(25),
                                   color: Colors.black.withOpacity(0.3),
                                   border: Border.all(
-                                    color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                    color: const Color(0xFF00C9A7)
+                                        .withOpacity(0.3),
                                     width: 1,
                                   ),
                                 ),
@@ -526,7 +567,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: const Color(0xFF00C9A7).withOpacity(0.3),
+                                    color: const Color(0xFF00C9A7)
+                                        .withOpacity(0.3),
                                     width: 1,
                                   ),
                                   color: Colors.black.withOpacity(0.2),
@@ -537,7 +579,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     Icon(
                                       Icons.verified_user_rounded,
                                       size: 18,
-                                      color: const Color(0xFF00C9A7).withOpacity(0.9),
+                                      color: const Color(0xFF00C9A7)
+                                          .withOpacity(0.9),
                                     ),
                                     const SizedBox(width: 8),
                                     Text(

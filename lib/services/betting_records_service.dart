@@ -23,12 +23,12 @@ class GameInfo {
 
   factory GameInfo.fromJson(Map<String, dynamic> json) {
     return GameInfo(
-      id: json['id'] as int,
-      gameCode: (json['gameCode'] ?? '') as String,
-      gameName: (json['gameName'] ?? '') as String,
-      categoryCode: (json['categoryCode'] ?? 'UNKNOWN') as String,
-      platformCode: (json['platformCode'] ?? '') as String,
-      imageSquare: json['imageSquare'] as String?,
+      id: _toInt(json['id']),
+      gameCode: _toStringValue(json['gameCode']),
+      gameName: _toStringValue(json['gameName']),
+      categoryCode: _toStringValue(json['categoryCode'], fallback: 'UNKNOWN'),
+      platformCode: _toStringValue(json['platformCode']),
+      imageSquare: json['imageSquare']?.toString(),
     );
   }
 }
@@ -54,6 +54,7 @@ class BetRecord {
   final String transactionId;
   final String betId;
   final String currency;
+  final double balanceBefore; // ✅ added
   final double betAmount;
   final String platformCode;
   final String userName;
@@ -81,6 +82,7 @@ class BetRecord {
     required this.transactionId,
     required this.betId,
     required this.currency,
+    required this.balanceBefore, // ✅ added
     required this.betAmount,
     required this.platformCode,
     required this.userName,
@@ -103,47 +105,33 @@ class BetRecord {
   });
 
   factory BetRecord.fromJson(Map<String, dynamic> json) {
-    double _toDouble(dynamic v) {
-      if (v == null) return 0.0;
-      if (v is num) return v.toDouble();
-      return double.tryParse(v.toString()) ?? 0.0;
-    }
-
-    DateTime? _parseDate(String? s) {
-      if (s == null) return null;
-      try {
-        return DateTime.parse(s);
-      } catch (_) {
-        return null;
-      }
-    }
-
     return BetRecord(
-      id: (json['id'] ?? '') as String,
-      walletId: (json['walletId'] ?? '') as String,
-      traceId: (json['traceId'] ?? '') as String,
-      transactionId: (json['transactionId'] ?? '') as String,
-      betId: (json['betId'] ?? '') as String,
-      currency: (json['currency'] ?? '') as String,
+      id: _toStringValue(json['id']),
+      walletId: _toStringValue(json['walletId']),
+      traceId: _toStringValue(json['traceId']),
+      transactionId: _toStringValue(json['transactionId']),
+      betId: _toStringValue(json['betId']),
+      currency: _toStringValue(json['currency']),
+      balanceBefore: _toDouble(json['balanceBefore']), // ✅ added
       betAmount: _toDouble(json['betAmount']),
-      platformCode: (json['platformCode'] ?? '') as String,
-      userName: (json['userName'] ?? '') as String,
-      vendorCode: (json['vendorCode'] ?? '') as String,
+      platformCode: _toStringValue(json['platformCode']),
+      userName: _toStringValue(json['userName']),
+      vendorCode: _toStringValue(json['vendorCode']),
       winAmount: _toDouble(json['winAmount']),
       lossAmount: _toDouble(json['lossAmount']),
       currentClosingBalance: _toDouble(json['currentClosingBalance']),
       currentBonusBalance: _toDouble(json['currentBonusBalance']),
-      gameCode: (json['gameCode'] ?? '') as String,
-      gameName: (json['gameName'] ?? '') as String,
-      roundId: (json['roundId'] ?? '') as String,
+      gameCode: _toStringValue(json['gameCode']),
+      gameName: _toStringValue(json['gameName']),
+      roundId: _toStringValue(json['roundId']),
       winLoss: _toDouble(json['winLoss']),
       jackpotAmount: _toDouble(json['jackpotAmount']),
-      gameType: json['gameType'] as String?,
-      resultType: json['resultType'] as String?,
-      status: json['status'] as String?,
-      remarks: json['remarks'] as String?,
-      transactionType: json['transactionType'] as String?,
-      date: _parseDate(json['date'] as String?),
+      gameType: json['gameType']?.toString(),
+      resultType: json['resultType']?.toString(),
+      status: json['status']?.toString(),
+      remarks: json['remarks']?.toString(),
+      transactionType: json['transactionType']?.toString(),
+      date: _parseDate(json['date']?.toString()),
     );
   }
 }
@@ -164,29 +152,26 @@ class BetRecordsPageResponse {
 }
 
 class BettingRecordsService {
-  // ✅ Base URL from .env (WALLET_BASE_URL)
   static final String _baseUrl =
       dotenv.env['WALLET_BASE_URL'] ??
       (throw Exception('WALLET_BASE_URL not found in .env'));
 
   String _formatDateTime(DateTime dt) {
     final iso = dt.toIso8601String();
-    return iso.split('.').first; // "YYYY-MM-DDTHH:mm:ss"
+    return iso.split('.').first;
   }
 
   /// First API: game vendor details by walletId.
-  /// 🔥 To make sure we get ALL games, we always use a very wide date range:
-  /// from 2020-07-30T00:00:00 to today 23:59:59 (unless explicitly overridden).
+  /// Uses wide range to ensure all games are fetched.
   Future<GameVendorDetailsResponse> fetchGameVendorDetails({
     required String walletId,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
     final now = DateTime.now();
-    final DateTime s =
-        startDate ?? DateTime(2020, 7, 30, 0, 0, 0); // wide start
-    final DateTime e = endDate ??
-        DateTime(now.year, now.month, now.day, 23, 59, 59); // today end
+    final DateTime s = startDate ?? DateTime(2020, 7, 30, 0, 0, 0);
+    final DateTime e =
+        endDate ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     final uri = Uri.parse(
       '$_baseUrl/api/wallet/ledger/game-vendor-details/$walletId',
@@ -209,7 +194,8 @@ class BettingRecordsService {
     final List gamesJson = (data['gamesDetails'] ?? []) as List;
 
     final games = gamesJson
-        .map((e) => GameInfo.fromJson(e as Map<String, dynamic>))
+        .whereType<Map>()
+        .map((e) => GameInfo.fromJson(Map<String, dynamic>.from(e)))
         .toList();
 
     final categoriesSet = <String>{};
@@ -237,8 +223,8 @@ class BettingRecordsService {
     required String platformCode,
     required DateTime startDate,
     required DateTime endDate,
-    required String customizedCategory, // "ALL" or categoryCode
-    required String gameCodeOrAll, // "ALL" or specific gameCode
+    required String customizedCategory,
+    required String gameCodeOrAll,
     required int page,
     required int size,
   }) async {
@@ -283,13 +269,15 @@ class BettingRecordsService {
 
     final data = json.decode(res.body) as Map<String, dynamic>;
     final List contentJson = (data['content'] ?? []) as List;
+
     final records = contentJson
-        .map((e) => BetRecord.fromJson(e as Map<String, dynamic>))
+        .whereType<Map>()
+        .map((e) => BetRecord.fromJson(Map<String, dynamic>.from(e)))
         .toList();
 
-    final totalElements = (data['totalElements'] ?? 0) as int;
-    final pageSize = (data['size'] ?? size) as int;
-    final pageNumber = (data['number'] ?? page) as int;
+    final totalElements = _toInt(data['totalElements']);
+    final pageSize = _toInt(data['size'], fallback: size);
+    final pageNumber = _toInt(data['number'], fallback: page);
 
     return BetRecordsPageResponse(
       records: records,
@@ -297,5 +285,35 @@ class BettingRecordsService {
       pageSize: pageSize,
       pageNumber: pageNumber,
     );
+  }
+}
+
+/* ---------------- helpers ---------------- */
+
+double _toDouble(dynamic v) {
+  if (v == null) return 0.0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0.0;
+}
+
+int _toInt(dynamic v, {int fallback = 0}) {
+  if (v == null) return fallback;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString()) ?? fallback;
+}
+
+String _toStringValue(dynamic v, {String fallback = ''}) {
+  if (v == null) return fallback;
+  final s = v.toString();
+  return s;
+}
+
+DateTime? _parseDate(String? s) {
+  if (s == null || s.trim().isEmpty) return null;
+  try {
+    return DateTime.parse(s);
+  } catch (_) {
+    return null;
   }
 }

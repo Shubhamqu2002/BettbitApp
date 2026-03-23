@@ -18,6 +18,9 @@ class OperatorCodeService {
   static const String _kOperatorIp = "operator_code_ip";
   static const String _kOperatorFetchedAtMs = "operator_code_fetched_at_ms";
 
+  // ✅ NEW: user_code storage key
+  static const String _kUserCode = "user_code";
+
   // ✅ Your API
   static const String _operatorApiBase =
       "https://api.bettbit.com/file/operatorcode/ip";
@@ -42,6 +45,76 @@ class OperatorCodeService {
     return File("${dir.path}/operator_code.json");
   }
 
+  // ✅ Generate USER-YYYY-TIMESTAMP (USER fixed)
+  String _generateUserCode() {
+    final year = DateTime.now().year;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return "USER-$year-$ts";
+  }
+
+  /// ✅ Get stored user_code (prefs -> file backup)
+  Future<String?> getStoredUserCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = (prefs.getString(_kUserCode) ?? "").trim();
+    if (v.isNotEmpty) return v;
+
+    // File backup fallback
+    try {
+      final f = await _backupFile();
+      if (await f.exists()) {
+        final raw = await f.readAsString();
+        final j = jsonDecode(raw);
+        if (j is Map && (j["user_code"] ?? "").toString().trim().isNotEmpty) {
+          final code = (j["user_code"] ?? "").toString().trim();
+          _log("Recovered user_code from file backup: $code");
+
+          await prefs.setString(_kUserCode, code);
+          return code;
+        }
+      }
+    } catch (e) {
+      _log("File backup read (user_code) failed: $e");
+    }
+
+    return null;
+  }
+
+  /// ✅ Create once and persist (always returns non-empty)
+  Future<String> getOrCreateUserCode() async {
+    final existing = await getStoredUserCode();
+    if (existing != null && existing.trim().isNotEmpty) return existing.trim();
+
+    final created = _generateUserCode();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kUserCode, created);
+
+    _log("✅ Created user_code => $created (saved in SharedPreferences)");
+
+    // best-effort: also write into file backup
+    try {
+      final f = await _backupFile();
+      Map<String, dynamic> backup = {};
+
+      if (await f.exists()) {
+        try {
+          final raw = await f.readAsString();
+          final j = jsonDecode(raw);
+          if (j is Map) backup = Map<String, dynamic>.from(j);
+        } catch (_) {}
+      }
+
+      backup["user_code"] = created;
+      backup["saved_at_ms"] = DateTime.now().millisecondsSinceEpoch;
+
+      await f.writeAsString(jsonEncode(backup));
+      _log("🗂️ File backup updated with user_code: ${f.path}");
+    } catch (e) {
+      _log("File backup write (user_code) failed: $e");
+    }
+
+    return created;
+  }
+
   Future<String?> getStoredOperatorCode() async {
     final prefs = await SharedPreferences.getInstance();
     final v = (prefs.getString(_kOperatorCode) ?? "").trim();
@@ -58,7 +131,6 @@ class OperatorCodeService {
           final code = (j["operator_code"] ?? "").toString().trim();
           _log("Recovered operator_code from file backup: $code");
 
-          // restore into prefs too
           await prefs.setString(_kOperatorCode, code);
           return code;
         }
@@ -73,6 +145,9 @@ class OperatorCodeService {
   /// Call this on app start.
   /// It will ONLY hit network if operator_code is missing.
   Future<void> boot() async {
+    // ✅ Ensure user_code exists early (no network)
+    await getOrCreateUserCode();
+
     final existing = await getStoredOperatorCode();
     if (existing != null && existing.trim().isNotEmpty) {
       _log("boot(): already stored => $existing (skip network)");
@@ -86,6 +161,9 @@ class OperatorCodeService {
   /// Use this when you NEED the code (e.g., before register).
   /// If missing, it fetches once.
   Future<String> getOrFetchOperatorCode() async {
+    // ✅ Ensure user_code exists (no network)
+    await getOrCreateUserCode();
+
     final existing = await getStoredOperatorCode();
     if (existing != null && existing.trim().isNotEmpty) return existing;
 
@@ -132,6 +210,9 @@ class OperatorCodeService {
 
   Future<String?> _fetchAndStoreOperatorCode() async {
     try {
+      // ✅ Ensure user_code exists (no network)
+      final userCode = await getOrCreateUserCode();
+
       // 1) Get public IP
       final ip = await _fetchPublicIp();
       if (ip == null || ip.trim().isEmpty) {
@@ -142,20 +223,21 @@ class OperatorCodeService {
       // 2) Build device_name
       final deviceName = await _getDeviceName();
 
-      // ✅ DEBUG: print payload params clearly
       _log("📦 Payload Params:");
       _log("   • ip_address  = ${ip.trim()}");
       _log("   • device_name = $deviceName");
+      _log("   • user_code   = $userCode");
 
       // 3) Build API URL with query params
       final queryParams = <String, String>{
         "ip_address": ip.trim(),
         "device_name": deviceName,
+        "user_code": userCode, // ✅ NEW PARAM
       };
 
-      final uri = Uri.parse(_operatorApiBase).replace(queryParameters: queryParams);
+      final uri =
+          Uri.parse(_operatorApiBase).replace(queryParameters: queryParams);
 
-      // ✅ DEBUG: show final URL + raw query map
       _log("➡️ Calling operator API:");
       _log("   • base = $_operatorApiBase");
       _log("   • query = $queryParams");
@@ -201,10 +283,14 @@ class OperatorCodeService {
         DateTime.now().millisecondsSinceEpoch,
       );
 
+      // ✅ Persist user_code too
+      await prefs.setString(_kUserCode, userCode);
+
       _log("💾 Saved in SharedPreferences:");
       _log("   • $_kOperatorCode = $operatorCode");
       _log("   • $_kOperatorIp   = $ipEcho");
       _log("   • $_kOperatorFetchedAtMs = ${DateTime.now().millisecondsSinceEpoch}");
+      _log("   • $_kUserCode = $userCode");
 
       // 5) Save file backup
       try {
@@ -213,6 +299,7 @@ class OperatorCodeService {
           "operator_code": operatorCode,
           "ip_address": ipEcho,
           "device_name": deviceName,
+          "user_code": userCode,
           "saved_at_ms": DateTime.now().millisecondsSinceEpoch,
         };
         await f.writeAsString(jsonEncode(backup));

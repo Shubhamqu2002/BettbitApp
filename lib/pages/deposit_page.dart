@@ -4,7 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../components/gradient_background.dart';
 import '../components/deposit/cash_deposit_page.dart';
 import '../components/deposit/upi_deposit_page.dart';
-import '../components/deposit/phonepe_deposit_page.dart'; // ✅ NEW
+import '../components/deposit/phonepe_deposit_page.dart';
+import '../components/deposit/passimpay_deposit_page.dart';
 
 import '../services/deposit/deposit_service.dart';
 import '../services/deposit/deposit_models.dart';
@@ -26,12 +27,12 @@ class _DepositPageState extends State<DepositPage> {
   String _currency = "INR";
 
   List<DepositMethod> _billblendMethods = [];
-  List<DepositMethod> _gptMethods = []; // ✅ NEW
+  List<DepositMethod> _gptMethods = [];
+  List<DepositMethod> _passimpayMethods = [];
 
-  // Elegant color palette
-  static const Color primaryAccent = Color(0xFF6366F1); // Indigo
-  static const Color successAccent = Color(0xFF10B981); // Emerald
-  static const Color cardBg = Color(0xFF1E293B); // Slate dark
+  static const Color primaryAccent = Color(0xFF6366F1);
+  static const Color successAccent = Color(0xFF10B981);
+  static const Color cardBg = Color(0xFF1E293B);
 
   @override
   void initState() {
@@ -47,7 +48,8 @@ class _DepositPageState extends State<DepositPage> {
       });
 
       final prefs = await SharedPreferences.getInstance();
-      final savedCountry = (prefs.getString('registered_country') ?? 'IN').trim();
+      final savedCountry =
+          (prefs.getString('registered_country') ?? 'IN').trim();
       final savedCurrency = (prefs.getString('currency') ?? 'INR').trim();
 
       _country = savedCountry.isEmpty ? "IN" : savedCountry;
@@ -58,7 +60,8 @@ class _DepositPageState extends State<DepositPage> {
       if (!mounted) return;
       setState(() {
         _billblendMethods = resp.billblend;
-        _gptMethods = resp.gpt; // ✅ NEW
+        _gptMethods = resp.gpt;
+        _passimpayMethods = resp.passimpay;
         _loading = false;
       });
     } catch (e) {
@@ -69,20 +72,6 @@ class _DepositPageState extends State<DepositPage> {
       });
     }
   }
-
-  // void _openCash() {
-  //   Navigator.push(
-  //     context,
-  //     MaterialPageRoute(
-  //       builder: (_) => GradientBackground(
-  //         child: CashDepositPage(
-  //           minDeposit: 100.00,
-  //           maxDeposit: 20000.00,
-  //         ),
-  //       ),
-  //     ),
-  //   );
-  // }
 
   void _openBillblendMethod(DepositMethod m) {
     if (m.depositKey.toUpperCase() == "UPI") {
@@ -95,7 +84,7 @@ class _DepositPageState extends State<DepositPage> {
               depositMethod: m.depositMethod,
               minDeposit: m.minDeposit,
               maxDeposit: m.maxDeposit,
-              groupId: m.groupId,
+              groupId: m.groupId ?? "",
             ),
           ),
         ),
@@ -105,7 +94,8 @@ class _DepositPageState extends State<DepositPage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("Deposit method '${m.depositMethod}' is not supported yet."),
+        content:
+            Text("Deposit method '${m.depositMethod}' is not supported yet."),
         behavior: SnackBarBehavior.floating,
         backgroundColor: cardBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -115,30 +105,60 @@ class _DepositPageState extends State<DepositPage> {
 
   void _openGptMethod(DepositMethod m) {
     if (m.depositKey.toUpperCase() == "PHONE_PE" ||
-    m.depositKey.toUpperCase() == "UPI" ||
-    m.depositKey.toUpperCase() == "PAYTM") {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => GradientBackground(
-        child: PhonePeDepositPage(
-          depositKey: m.depositKey,
-          depositMethod: m.depositMethod, // button label (dynamic)
-          minDeposit: m.minDeposit,
-          maxDeposit: m.maxDeposit,
-          groupId: m.groupId,
+        m.depositKey.toUpperCase() == "UPI" ||
+        m.depositKey.toUpperCase() == "PAYTM") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GradientBackground(
+            child: PhonePeDepositPage(
+              depositKey: m.depositKey,
+              depositMethod: m.depositMethod,
+              methodCode: m.methodCode,
+              minDeposit: m.minDeposit,
+              maxDeposit: m.maxDeposit,
+              groupId: m.groupId ?? "",
+            ),
+          ),
         ),
-      ),
-    ),
-  );
-  return;
-}
-
-
+      );
+      return;
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text("GPT method '${m.depositMethod}' is not supported yet."),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _openPassimpayMethod(DepositMethod m) {
+    if (m.depositKey.toUpperCase() == "PASSIMPAY") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GradientBackground(
+            child: PassimpayDepositPage(
+              depositKey: m.depositKey,
+              depositMethod: m.depositMethod,
+              methodCode: m.methodCode.isEmpty ? "PASSIMPAY" : m.methodCode,
+              minDeposit: m.minDeposit,
+              maxDeposit: m.maxDeposit,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "PASSIMPAY method '${m.depositMethod}' is not supported yet.",
+        ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: cardBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -209,7 +229,6 @@ class _DepositPageState extends State<DepositPage> {
                       [
                         _TopHeader(currency: _currency, country: _country),
                         const SizedBox(height: 32),
-
                         Text(
                           "Payment Methods",
                           style: TextStyle(
@@ -230,7 +249,6 @@ class _DepositPageState extends State<DepositPage> {
                           ),
                         ),
                         const SizedBox(height: 24),
-
                         if (_loading) ...[
                           const _MethodSkeleton(),
                           const SizedBox(height: 16),
@@ -240,17 +258,6 @@ class _DepositPageState extends State<DepositPage> {
                         ] else if (_error != null) ...[
                           _ErrorCard(message: _error!, onRetry: _initLoad),
                         ] else ...[
-                          // _DepositMethodTile(
-                          //   title: "Cash Deposit",
-                          //   subtitle: "$_currency 100 - $_currency 20,000",
-                          //   icon: Icons.account_balance_wallet_rounded,
-                          //   badgeText: "Instant",
-                          //   badgeColor: successAccent,
-                          //   onTap: _openCash,
-                          // ),
-                          // const SizedBox(height: 16),
-
-                          // ---------------- BILLBLEND ----------------
                           ..._billblendMethods.map((m) {
                             final range =
                                 "$_currency ${m.minDeposit.toStringAsFixed(0)} - $_currency ${m.maxDeposit.toStringAsFixed(0)}";
@@ -267,7 +274,6 @@ class _DepositPageState extends State<DepositPage> {
                             );
                           }),
 
-                          // ---------------- GPT (NEW) ----------------
                           if (_gptMethods.isNotEmpty) ...[
                             const SizedBox(height: 6),
                             Text(
@@ -280,14 +286,13 @@ class _DepositPageState extends State<DepositPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
-
                             ..._gptMethods.map((m) {
                               final range =
                                   "$_currency ${m.minDeposit.toStringAsFixed(0)} - $_currency ${m.maxDeposit.toStringAsFixed(0)}";
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: _DepositMethodTile(
-                                  title: m.depositMethod, // ✅ use depositMethod from response
+                                  title: m.depositMethod,
                                   subtitle: range,
                                   icon: Icons.account_balance_rounded,
                                   badgeText: "GPT",
@@ -298,7 +303,38 @@ class _DepositPageState extends State<DepositPage> {
                             }),
                           ],
 
-                          if (_billblendMethods.isEmpty && _gptMethods.isEmpty)
+                          if (_passimpayMethods.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              "Passimpay",
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ..._passimpayMethods.map((m) {
+                              final range =
+                                  "$_currency ${m.minDeposit.toStringAsFixed(0)} - $_currency ${m.maxDeposit.toStringAsFixed(0)}";
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: _DepositMethodTile(
+                                  title: m.depositMethod,
+                                  subtitle: range,
+                                  icon: Icons.currency_exchange_rounded,
+                                  badgeText: "PASSIMPAY",
+                                  badgeColor: const Color(0xFFF59E0B),
+                                  onTap: () => _openPassimpayMethod(m),
+                                ),
+                              );
+                            }),
+                          ],
+
+                          if (_billblendMethods.isEmpty &&
+                              _gptMethods.isEmpty &&
+                              _passimpayMethods.isEmpty)
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
@@ -339,7 +375,6 @@ class _DepositPageState extends State<DepositPage> {
                               ),
                             ),
                         ],
-
                         const SizedBox(height: 20),
                       ],
                     ),
@@ -354,7 +389,7 @@ class _DepositPageState extends State<DepositPage> {
   }
 }
 
-/* ---------- UI Components (UNCHANGED) ---------- */
+/* ---------- UI Components ---------- */
 
 class _IconButton extends StatelessWidget {
   final IconData icon;
@@ -655,7 +690,8 @@ class _DepositMethodTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Icon(Icons.arrow_forward_rounded, color: badgeColor, size: 18),
+                    Icon(Icons.arrow_forward_rounded,
+                        color: badgeColor, size: 18),
                   ],
                 ),
               ),
@@ -732,7 +768,8 @@ class _ErrorCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B).withOpacity(0.6),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1),
+        border:
+            Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1),
       ),
       child: Column(
         children: [
@@ -792,7 +829,8 @@ class _ErrorCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.redAccent.withOpacity(0.1),
                   border: Border(
-                    top: BorderSide(color: Colors.white.withOpacity(0.08), width: 1),
+                    top: BorderSide(
+                        color: Colors.white.withOpacity(0.08), width: 1),
                   ),
                 ),
                 child: Row(

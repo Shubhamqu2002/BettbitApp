@@ -11,7 +11,7 @@ class DepositService {
   });
 
   /// GET https://walletservice.nexxorra.com/country-selection/deposit/{country}
-  /// Returns BOTH: BILLBLEND + GPT (if present)
+  /// Returns: BILLBLEND + GPT + PASSIMPAY (if present)
   Future<DepositMethodsResponse> fetchDepositMethods(String countryCode) async {
     final uri = Uri.parse('$baseUrl/country-selection/deposit/$countryCode');
 
@@ -28,6 +28,8 @@ class DepositService {
     final billblendList =
         (body is Map<String, dynamic>) ? body['BILLBLEND'] : null;
     final gptList = (body is Map<String, dynamic>) ? body['GPT'] : null;
+    final passimpayList =
+        (body is Map<String, dynamic>) ? body['PASSIMPAY'] : null;
 
     final billblend = (billblendList is List)
         ? billblendList
@@ -43,9 +45,17 @@ class DepositService {
             .toList()
         : <DepositMethod>[];
 
+    final passimpay = (passimpayList is List)
+        ? passimpayList
+            .map((e) =>
+                DepositMethod.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList()
+        : <DepositMethod>[];
+
     return DepositMethodsResponse(
       billblend: billblend,
       gpt: gpt,
+      passimpay: passimpay,
     );
   }
 
@@ -54,5 +64,18 @@ class DepositService {
       String countryCode) async {
     final resp = await fetchDepositMethods(countryCode);
     return resp.billblend;
+  }
+
+  /// Optional helper for GPT-only methods
+  Future<List<DepositMethod>> fetchGptDepositMethods(String countryCode) async {
+    final resp = await fetchDepositMethods(countryCode);
+    return resp.gpt;
+  }
+
+  /// Optional helper for PASSIMPAY-only methods
+  Future<List<DepositMethod>> fetchPassimpayDepositMethods(
+      String countryCode) async {
+    final resp = await fetchDepositMethods(countryCode);
+    return resp.passimpay;
   }
 }

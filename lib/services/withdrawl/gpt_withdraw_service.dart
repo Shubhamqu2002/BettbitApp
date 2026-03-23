@@ -1,9 +1,7 @@
-// lib/services/withdrawl/gpt_withdraw_service.dart
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-// SAME encryption helper used in AuthService
 import '../../util/crypto_utils.dart';
 
 class GptWithdrawService {
@@ -16,58 +14,44 @@ class GptWithdrawService {
     required String currency,
     required String methodCode,
     required String country,
-    required String userName, // metadata.internal_id
-    required String accountName, // recipient.full_name
-    String? accountNumber, // recipient.wallet_uid (Bank Transfer)
-    String? ifscCode, // recipient.ifsc_code (Bank Transfer)
-    String? phone, // UPI only
-    String? upiId, // UPI only
-
-    // IMPORTANT: We encrypt this before sending (sender.full_name)
+    required String userName,
+    required String accountName,
+    required String accountNumber,
+    required String routingValue,
     required String transactionPassword,
   }) async {
     final url = Uri.parse("$_root/api/invoice/withdraw");
     final reference = _makeReference();
+    final normalizedCountry = country.trim().toUpperCase();
 
-    // Encrypt txn password (same helper as AuthService)
     final encryptedTxnPass = encryptText(transactionPassword.trim());
 
     if (kDebugMode) {
       debugPrint("🧾 GPT Withdraw methodCode: $methodCode");
+      debugPrint("🌍 GPT Withdraw country: $normalizedCountry");
       debugPrint("🧾 GPT Withdraw reference: $reference");
       debugPrint("🔐 Encrypted transactionPassword: $encryptedTxnPass");
     }
 
-    final Map<String, dynamic> recipient = {
-      "full_name": accountName.trim(),
-    };
-
-    // BANK TRANSFER => wallet_uid + ifsc_code
-    // UPI => phone + upi_id + hardcoded wallet_uid/ifsc_code (as per your requirement)
-    final m = methodCode.trim().toUpperCase();
-    if (m == "UPI") {
-      recipient["wallet_uid"] = "UPI"; // hardcoded as you requested
-      recipient["ifsc_code"] = "NA"; // hardcoded (not used)
-      recipient["phone"] = (phone ?? "").trim();
-      recipient["upi_id"] = (upiId ?? "").trim();
-    } else {
-      recipient["wallet_uid"] = (accountNumber ?? "").trim();
-      recipient["ifsc_code"] = (ifscCode ?? "").trim();
-    }
+    final recipient = _buildRecipient(
+      country: normalizedCountry,
+      accountName: accountName,
+      accountNumber: accountNumber,
+      routingValue: routingValue,
+    );
 
     final payload = {
       "amount": amount,
       "currency": currency.trim().isEmpty ? "INR" : currency.trim(),
-      "method_code": methodCode,
+      "method_code": methodCode, // ✅ dynamic from payment methods API
       "recipient": recipient,
       "reference": reference,
-      "country": country.trim().isEmpty ? "IN" : country.trim(),
+      "country": normalizedCountry.isEmpty ? "IN" : normalizedCountry,
       "metadata": {
         "internal_id": userName,
       },
       "webhook_url": webhookUrl,
       "sender": {
-        // sender.full_name must be encrypted transactionPassword (as you asked)
         "full_name": encryptedTxnPass,
         "address": senderAddress,
       }
@@ -103,9 +87,40 @@ class GptWithdrawService {
     return {"data": body};
   }
 
+  Map<String, dynamic> _buildRecipient({
+    required String country,
+    required String accountName,
+    required String accountNumber,
+    required String routingValue,
+  }) {
+    final normalizedCountry = country.trim().toUpperCase();
+
+    final recipient = <String, dynamic>{
+      "full_name": accountName.trim(),
+      "wallet_uid": accountNumber.trim(),
+    };
+
+    switch (normalizedCountry) {
+      case "IN":
+        recipient["ifsc_code"] = routingValue.trim();
+        break;
+
+      case "PK":
+        recipient["phone"] = routingValue.trim();
+        break;
+
+      default:
+        // Easy future extension:
+        // recipient["routing_code"] = routingValue.trim();
+        recipient["phone"] = routingValue.trim();
+        break;
+    }
+
+    return recipient;
+  }
+
   String _makeReference() {
     final now = DateTime.now();
-    // INV-YYYY-timestamp
     return "INV-${now.year}-${now.millisecondsSinceEpoch}";
   }
 }

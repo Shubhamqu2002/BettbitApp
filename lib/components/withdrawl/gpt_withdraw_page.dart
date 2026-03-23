@@ -24,12 +24,11 @@ class GptWithdrawPage extends StatefulWidget {
   State<GptWithdrawPage> createState() => _GptWithdrawPageState();
 }
 
-class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProviderStateMixin {
+class _GptWithdrawPageState extends State<GptWithdrawPage>
+    with SingleTickerProviderStateMixin {
   final _accountNameCtrl = TextEditingController();
   final _accountNumberCtrl = TextEditingController();
-  final _ifscCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _upiCtrl = TextEditingController();
+  final _routingCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _txnPassCtrl = TextEditingController();
 
@@ -38,9 +37,7 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
 
   String? _accountNameError;
   String? _accountNumberError;
-  String? _ifscError;
-  String? _phoneError;
-  String? _upiError;
+  String? _routingError;
   String? _amountError;
   String? _txnPassError;
 
@@ -58,8 +55,18 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
   static const Color secondaryAccent = Color(0xFF8B5CF6);
   static const Color successAccent = Color(0xFF10B981);
 
+  bool get _usesIfscField => _country.trim().toUpperCase() == "IN";
+  bool get _usesPhoneField => _country.trim().toUpperCase() == "PK";
 
-  bool get _isUpi => widget.methodCode.trim().toUpperCase() == "UPI";
+  String get _routingLabel => _usesIfscField ? "IFSC Code" : "Phone Number";
+  String get _routingHint =>
+      _usesIfscField ? "Enter IFSC code" : "Enter phone number";
+  IconData get _routingIcon => _usesIfscField
+      ? Icons.confirmation_number_rounded
+      : Icons.phone_iphone_rounded;
+  TextInputType get _routingKeyboardType =>
+      _usesIfscField ? TextInputType.text : TextInputType.phone;
+
   String _formatRange(double v) => NumberFormat("#,##0").format(v);
 
   @override
@@ -67,9 +74,18 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
     super.initState();
     _loadPrefs();
 
-    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
-    _fadeAnimation = CurvedAnimation(parent: _animController, curve: Curves.easeInOut);
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeInOut,
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.2),
+      end: Offset.zero,
+    ).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
     );
     _animController.forward();
@@ -77,11 +93,16 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+
     setState(() {
-      _currency = (prefs.getString('currency') ?? 'INR').trim();
+      _currency = (prefs.getString('currency') ?? 'INR').trim().toUpperCase();
       if (_currency.isEmpty) _currency = "INR";
-      _country = (prefs.getString('registered_country') ?? 'IN').trim();
+
+      _country =
+          (prefs.getString('registered_country') ?? 'IN').trim().toUpperCase();
       if (_country.isEmpty) _country = "IN";
+
       _userName = (prefs.getString('user_name') ?? '').trim();
     });
   }
@@ -91,54 +112,49 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
     return double.tryParse(txt);
   }
 
-  bool _isValidUpi(String v) {
+  bool _isValidIfsc(String v) {
     final t = v.trim();
-    return t.isNotEmpty && t.contains("@") && !t.startsWith("@") && !t.endsWith("@");
+    return t.length >= 6;
+  }
+
+  bool _isValidPhone(String v) {
+    final t = v.trim();
+    return RegExp(r'^\d{8,15}$').hasMatch(t);
   }
 
   void _validateAll() {
     final accountName = _accountNameCtrl.text.trim();
     final accountNumber = _accountNumberCtrl.text.trim();
-    final ifsc = _ifscCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
-    final upi = _upiCtrl.text.trim();
+    final routingValue = _routingCtrl.text.trim();
     final amountRaw = _amountCtrl.text.trim();
     final txnPass = _txnPassCtrl.text.trim();
 
     setState(() {
       _accountNameError = null;
       _accountNumberError = null;
-      _ifscError = null;
-      _phoneError = null;
-      _upiError = null;
+      _routingError = null;
       _amountError = null;
       _txnPassError = null;
 
-      if (accountName.isEmpty) _accountNameError = "Account name is required";
+      if (accountName.isEmpty) {
+        _accountNameError = "Account name is required";
+      }
 
-      if (_isUpi) {
-        if (phone.isEmpty) {
-          _phoneError = "Phone number is required";
-        } else if (!RegExp(r'^\d{10}$').hasMatch(phone)) {
-          _phoneError = "Enter valid 10-digit phone number";
-        }
+      if (accountNumber.isEmpty) {
+        _accountNumberError = "Account number is required";
+      } else if (!RegExp(r'^[A-Za-z0-9\-]{6,30}$').hasMatch(accountNumber)) {
+        _accountNumberError = "Enter valid account number";
+      }
 
-        if (upi.isEmpty) {
-          _upiError = "UPI ID is required";
-        } else if (!_isValidUpi(upi)) {
-          _upiError = "Enter valid UPI ID (must contain @)";
+      if (routingValue.isEmpty) {
+        _routingError = "$_routingLabel is required";
+      } else if (_usesIfscField) {
+        if (!_isValidIfsc(routingValue)) {
+          _routingError = "Enter valid IFSC code";
         }
-      } else {
-        if (accountNumber.isEmpty) {
-          _accountNumberError = "Account number is required";
-        } else if (!RegExp(r'^[0-9]{6,30}$').hasMatch(accountNumber)) {
-          _accountNumberError = "Enter valid account number";
-        }
-
-        if (ifsc.isEmpty) {
-          _ifscError = "IFSC code is required";
-        } else if (ifsc.length < 6) {
-          _ifscError = "Enter valid IFSC code";
+      } else if (_usesPhoneField) {
+        if (!_isValidPhone(routingValue)) {
+          _routingError = "Enter valid phone number";
         }
       }
 
@@ -149,9 +165,11 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
         if (amount == null) {
           _amountError = "Enter a valid amount";
         } else if (amount < widget.minWithdrawal) {
-          _amountError = "Minimum withdrawal is $_currency ${widget.minWithdrawal.toStringAsFixed(0)}";
+          _amountError =
+              "Minimum withdrawal is $_currency ${widget.minWithdrawal.toStringAsFixed(0)}";
         } else if (amount > widget.maxWithdrawal) {
-          _amountError = "Maximum withdrawal is $_currency ${widget.maxWithdrawal.toStringAsFixed(0)}";
+          _amountError =
+              "Maximum withdrawal is $_currency ${widget.maxWithdrawal.toStringAsFixed(0)}";
         }
       }
 
@@ -166,17 +184,14 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
   bool get _isValid {
     return _accountNameError == null &&
         _accountNumberError == null &&
-        _ifscError == null &&
-        _phoneError == null &&
-        _upiError == null &&
+        _routingError == null &&
         _amountError == null &&
         _txnPassError == null &&
         _accountNameCtrl.text.trim().isNotEmpty &&
+        _accountNumberCtrl.text.trim().isNotEmpty &&
+        _routingCtrl.text.trim().isNotEmpty &&
         _amountCtrl.text.trim().isNotEmpty &&
-        _txnPassCtrl.text.trim().isNotEmpty &&
-        (_isUpi
-            ? (_phoneCtrl.text.trim().isNotEmpty && _upiCtrl.text.trim().isNotEmpty)
-            : (_accountNumberCtrl.text.trim().isNotEmpty && _ifscCtrl.text.trim().isNotEmpty));
+        _txnPassCtrl.text.trim().isNotEmpty;
   }
 
   Future<void> _submit() async {
@@ -191,14 +206,12 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
       final resp = await _service.createGptWithdraw(
         amount: amount,
         currency: _currency,
-        methodCode: widget.methodCode,
+        methodCode: widget.methodCode, // ✅ dynamic API method code
         country: _country,
         userName: _userName,
         accountName: _accountNameCtrl.text.trim(),
-        accountNumber: _isUpi ? null : _accountNumberCtrl.text.trim(),
-        ifscCode: _isUpi ? null : _ifscCtrl.text.trim(),
-        phone: _isUpi ? _phoneCtrl.text.trim() : null,
-        upiId: _isUpi ? _upiCtrl.text.trim() : null,
+        accountNumber: _accountNumberCtrl.text.trim(),
+        routingValue: _routingCtrl.text.trim(),
         transactionPassword: _txnPassCtrl.text.trim(),
       );
 
@@ -222,17 +235,22 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: successAccent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
         ),
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+          content: Text(
+            msg,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: const Color(0xFF334155),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         ),
       );
@@ -242,14 +260,24 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
         SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
+              const Icon(
+                Icons.error_outline_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
               const SizedBox(width: 12),
-              Expanded(child: Text(e.toString(), style: const TextStyle(fontWeight: FontWeight.w600))),
+              Expanded(
+                child: Text(
+                  e.toString(),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.red.shade600,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -262,9 +290,7 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
   void dispose() {
     _accountNameCtrl.dispose();
     _accountNumberCtrl.dispose();
-    _ifscCtrl.dispose();
-    _phoneCtrl.dispose();
-    _upiCtrl.dispose();
+    _routingCtrl.dispose();
     _amountCtrl.dispose();
     _txnPassCtrl.dispose();
     _animController.dispose();
@@ -328,14 +354,18 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
                       children: [
                         _HeaderCard(
                           title: "GPT Withdraw",
-                          subtitle: _isUpi ? "UPI withdrawal via GPT" : "Bank Transfer withdrawal via GPT",
+                          subtitle:
+                              "$_country withdrawal via GPT • ${widget.methodCode}",
                           icon: Icons.cloud_done_rounded,
                         ),
                         const SizedBox(height: 24),
                         _LimitsCard(minValue: minText, maxValue: maxText),
                         const SizedBox(height: 28),
 
-                        _SectionHeader(icon: Icons.person_outline_rounded, title: "Recipient Details"),
+                        _SectionHeader(
+                          icon: Icons.person_outline_rounded,
+                          title: "Recipient Details",
+                        ),
                         const SizedBox(height: 16),
 
                         _InputField(
@@ -350,56 +380,34 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
                         ),
                         const SizedBox(height: 18),
 
-                        if (!_isUpi) ...[
-                          _InputField(
-                            label: "Account Number",
-                            hint: "Enter account number",
-                            controller: _accountNumberCtrl,
-                            keyboardType: TextInputType.number,
-                            errorText: _accountNumberError,
-                            icon: Icons.numbers_rounded,
-                            enabled: !_submitting,
-                            onChanged: (_) => _validateAll(),
-                          ),
-                          const SizedBox(height: 18),
-                          _InputField(
-                            label: "IFSC Code",
-                            hint: "Enter IFSC code",
-                            controller: _ifscCtrl,
-                            keyboardType: TextInputType.text,
-                            errorText: _ifscError,
-                            icon: Icons.confirmation_number_rounded,
-                            enabled: !_submitting,
-                            onChanged: (_) => _validateAll(),
-                          ),
-                          const SizedBox(height: 18),
-                        ] else ...[
-                          _InputField(
-                            label: "Phone Number",
-                            hint: "Enter 10-digit phone number",
-                            controller: _phoneCtrl,
-                            keyboardType: TextInputType.phone,
-                            errorText: _phoneError,
-                            icon: Icons.phone_iphone_rounded,
-                            enabled: !_submitting,
-                            onChanged: (_) => _validateAll(),
-                          ),
-                          const SizedBox(height: 18),
-                          _InputField(
-                            label: "UPI ID",
-                            hint: "example@upi",
-                            controller: _upiCtrl,
-                            keyboardType: TextInputType.emailAddress,
-                            errorText: _upiError,
-                            icon: Icons.alternate_email_rounded,
-                            enabled: !_submitting,
-                            onChanged: (_) => _validateAll(),
-                          ),
-                          const SizedBox(height: 18),
-                        ],
+                        _InputField(
+                          label: "Account Number",
+                          hint: "Enter account number",
+                          controller: _accountNumberCtrl,
+                          keyboardType: TextInputType.text,
+                          errorText: _accountNumberError,
+                          icon: Icons.numbers_rounded,
+                          enabled: !_submitting,
+                          onChanged: (_) => _validateAll(),
+                        ),
+                        const SizedBox(height: 18),
+
+                        _InputField(
+                          label: _routingLabel,
+                          hint: _routingHint,
+                          controller: _routingCtrl,
+                          keyboardType: _routingKeyboardType,
+                          errorText: _routingError,
+                          icon: _routingIcon,
+                          enabled: !_submitting,
+                          onChanged: (_) => _validateAll(),
+                        ),
 
                         const SizedBox(height: 12),
-                        _SectionHeader(icon: Icons.payments_outlined, title: "Withdrawal Details"),
+                        _SectionHeader(
+                          icon: Icons.payments_outlined,
+                          title: "Withdrawal Details",
+                        ),
                         const SizedBox(height: 16),
 
                         _InputField(
@@ -439,7 +447,9 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
                         ),
 
                         const SizedBox(height: 20),
-                        const _SecurityBadge(text: "Your transaction is secure and encrypted"),
+                        const _SecurityBadge(
+                          text: "Your transaction is secure and encrypted",
+                        ),
                         const SizedBox(height: 8),
                       ],
                     ),
@@ -463,7 +473,10 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: primaryAccent.withOpacity(0.3), width: 2),
+                    border: Border.all(
+                      color: primaryAccent.withOpacity(0.3),
+                      width: 2,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: primaryAccent.withOpacity(0.3),
@@ -487,7 +500,8 @@ class _GptWithdrawPageState extends State<GptWithdrawPage> with SingleTickerProv
                           width: 32,
                           height: 32,
                           child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
                             strokeWidth: 3,
                           ),
                         ),
@@ -545,7 +559,10 @@ class _IconButton extends StatelessWidget {
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withOpacity(0.2), width: 1.5),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.2),
@@ -565,7 +582,11 @@ class _HeaderCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
-  const _HeaderCard({required this.title, required this.subtitle, required this.icon});
+  const _HeaderCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
 
   static const Color primaryAccent = Color(0xFF6366F1);
   static const Color secondaryAccent = Color(0xFF8B5CF6);
@@ -687,11 +708,18 @@ class _LimitsCard extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [warnAccent.withOpacity(0.2), warnAccent.withOpacity(0.1)],
+                    colors: [
+                      warnAccent.withOpacity(0.2),
+                      warnAccent.withOpacity(0.1),
+                    ],
                   ),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.info_outline_rounded, color: warnAccent, size: 20),
+                child: Icon(
+                  Icons.info_outline_rounded,
+                  color: warnAccent,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Text(
@@ -754,7 +782,12 @@ class _LimitBox extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
-  const _LimitBox({required this.label, required this.value, required this.icon, required this.color});
+  const _LimitBox({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -922,7 +955,9 @@ class _InputField extends StatelessWidget {
                     ],
                   ),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+                  border: Border.all(
+                    color: const Color(0xFF6366F1).withOpacity(0.3),
+                  ),
                 ),
                 child: Icon(icon, color: const Color(0xFF6366F1), size: 18),
               ),
@@ -964,7 +999,10 @@ class _InputField extends StatelessWidget {
               ),
               filled: true,
               fillColor: Colors.white.withOpacity(0.08),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 16,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
@@ -975,7 +1013,8 @@ class _InputField extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                borderSide:
+                    const BorderSide(color: Color(0xFF6366F1), width: 2),
               ),
             ),
           ),
@@ -983,7 +1022,11 @@ class _InputField extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.error_outline_rounded, color: Colors.red.shade400, size: 18),
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: Colors.red.shade400,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1077,9 +1120,15 @@ class _PasswordField extends StatelessWidget {
                     ],
                   ),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+                  border: Border.all(
+                    color: const Color(0xFF6366F1).withOpacity(0.3),
+                  ),
                 ),
-                child: const Icon(Icons.password_rounded, color: Color(0xFF6366F1), size: 18),
+                child: const Icon(
+                  Icons.password_rounded,
+                  color: Color(0xFF6366F1),
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               Text(
@@ -1113,7 +1162,10 @@ class _PasswordField extends StatelessWidget {
               ),
               filled: true,
               fillColor: Colors.white.withOpacity(0.08),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 16,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
@@ -1124,7 +1176,8 @@ class _PasswordField extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                borderSide:
+                    const BorderSide(color: Color(0xFF6366F1), width: 2),
               ),
               suffixIcon: InkWell(
                 onTap: enabled ? onToggle : null,
@@ -1132,7 +1185,9 @@ class _PasswordField extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Icon(
-                    obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                    obscure
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
                     color: Colors.white.withOpacity(0.7),
                     size: 22,
                   ),
@@ -1144,7 +1199,11 @@ class _PasswordField extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.error_outline_rounded, color: Colors.red.shade400, size: 18),
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: Colors.red.shade400,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1192,7 +1251,11 @@ class _SubmitButton extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: enabled
                 ? const LinearGradient(
-                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+                    colors: [
+                      Color(0xFF6366F1),
+                      Color(0xFF8B5CF6),
+                      Color(0xFF7C3AED),
+                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   )
@@ -1222,16 +1285,23 @@ class _SubmitButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 )
               else
-                const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 24),
+                const Icon(
+                  Icons.rocket_launch_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
               const SizedBox(width: 14),
               Text(
                 text,
                 style: TextStyle(
-                  color: enabled ? Colors.white : Colors.white.withOpacity(0.6),
+                  color: enabled
+                      ? Colors.white
+                      : Colors.white.withOpacity(0.6),
                   fontWeight: FontWeight.w800,
                   fontSize: 17,
                   letterSpacing: -0.3,
@@ -1263,7 +1333,10 @@ class _SecurityBadge extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4), width: 1.5),
+        border: Border.all(
+          color: const Color(0xFF10B981).withOpacity(0.4),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF10B981).withOpacity(0.15),
@@ -1280,7 +1353,11 @@ class _SecurityBadge extends StatelessWidget {
               color: const Color(0xFF10B981).withOpacity(0.2),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 20),
+            child: const Icon(
+              Icons.verified_user_rounded,
+              color: Color(0xFF10B981),
+              size: 20,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(

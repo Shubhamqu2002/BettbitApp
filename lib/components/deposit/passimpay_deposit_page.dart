@@ -1,45 +1,42 @@
-// lib/pages/deposit/phonepe_deposit_page.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../services/deposit/passimpay_deposit_service.dart';
+import 'passimpay_redirect_page.dart';
 
-import '../../services/deposit/gpt_deposit_service.dart';
-import '../../services/deposit/appsflyer_deposit_poller_service.dart';
-import '../../services/deposit/invoice_remarks_service.dart';
-import '../../components/deposit/gpt_payment_webview_page.dart';
-
-class PhonePeDepositPage extends StatefulWidget {
-  final String depositKey; // PHONE_PE / UPI / PAYTM (ui level key)
-  final String depositMethod; // button title
-  final String methodCode; // actual api methodCode like JAZZCASH / EASYPAISA
+class PassimpayDepositPage extends StatefulWidget {
+  final String depositKey;
+  final String depositMethod;
+  final String methodCode;
   final double minDeposit;
   final double maxDeposit;
-  final String groupId;
 
-  const PhonePeDepositPage({
+  const PassimpayDepositPage({
     super.key,
     required this.depositKey,
     required this.depositMethod,
     required this.methodCode,
     required this.minDeposit,
     required this.maxDeposit,
-    required this.groupId,
   });
 
   @override
-  State<PhonePeDepositPage> createState() => _PhonePeDepositPageState();
+  State<PassimpayDepositPage> createState() => _PassimpayDepositPageState();
 }
 
-class _PhonePeDepositPageState extends State<PhonePeDepositPage>
+class _PassimpayDepositPageState extends State<PassimpayDepositPage>
     with SingleTickerProviderStateMixin {
   final _amountCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+
+  final PassimpayDepositService _service = PassimpayDepositService();
 
   String _currency = "INR";
   String _country = "IN";
+  String _callingCode = "+91";
 
   String? _amountError;
+  String? _phoneError;
 
-  final GptDepositService _service = GptDepositService();
   bool _submitting = false;
 
   late AnimationController _animController;
@@ -49,15 +46,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
   static const Color primaryAccent = Color(0xFF6366F1);
   static const Color successAccent = Color(0xFF10B981);
   static const Color cardBg = Color(0xFF1E293B);
-
-  static const String _callbackUrl =
-      "https://payment.bettbit.com/api/invoice/payin/callback";
-  static const String _webhookUrl =
-      "https://payment.bettbit.com/api/invoice/payin/callback";
-
-  static const String _fallbackMethodCode = "UPI_URL";
-
-  static const String _remarksAppNotAvailable = "App is not available";
+  static const Color passimpayAccent = Color(0xFFF59E0B);
 
   @override
   void initState() {
@@ -77,24 +66,33 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.15),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOutCubic,
-    ));
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
 
     _animController.forward();
   }
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final currency = (prefs.getString('currency') ?? 'INR').trim();
+    final country = (prefs.getString('registered_country') ?? 'IN').trim();
 
-    final c = (prefs.getString('currency') ?? 'INR').trim();
-    final cc = (prefs.getString('registered_country') ?? 'IN').trim();
+    String callingCode = "+91";
+    if (country.toUpperCase() == "PK") {
+      callingCode = "+92";
+    } else if (country.toUpperCase() == "BD") {
+      callingCode = "+880";
+    }
 
     if (!mounted) return;
     setState(() {
-      _currency = c.isEmpty ? "INR" : c;
-      _country = cc.isEmpty ? "IN" : cc;
+      _currency = currency.isEmpty ? "INR" : currency;
+      _country = country.isEmpty ? "IN" : country;
+      _callingCode = callingCode;
     });
   }
 
@@ -103,11 +101,13 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     return double.tryParse(txt);
   }
 
-  bool _validateAmountOnly() {
+  bool _validate() {
     final a = _parseAmount();
+    final phone = _phoneCtrl.text.trim().replaceAll(RegExp(r'[^0-9]'), '');
 
     setState(() {
       _amountError = null;
+      _phoneError = null;
 
       if (a == null) {
         _amountError = "Enter a valid amount";
@@ -118,45 +118,62 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
         _amountError =
             "Maximum deposit is $_currency ${widget.maxDeposit.toStringAsFixed(0)}";
       }
+
+      if (phone.isEmpty) {
+        _phoneError = "Enter phone number";
+      } else if (phone.length < 8 || phone.length > 15) {
+        _phoneError = "Enter a valid phone number";
+      }
     });
 
-    return _amountError == null;
+    return _amountError == null && _phoneError == null;
   }
 
-  bool _isWebUrl(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return false;
+  Future<void> _submit() async {
+    if (!_validate()) return;
+    if (_submitting) return;
 
-    final scheme = uri.scheme.toLowerCase();
-    return scheme == "http" || scheme == "https";
-  }
+    setState(() => _submitting = true);
 
-  Future<bool> _tryLaunchDeepLink(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) {
-      _showSnackBar("Invalid payment URL", isError: true);
-      return false;
-    }
+    try {
+      final amount = _parseAmount() ?? 0;
+      final phone = _phoneCtrl.text.trim();
 
-    final can = await canLaunchUrl(uri);
-    if (!can) return false;
+      final resp = await _service.initiateDeposit(
+        amount: amount,
+        phoneNumber: phone,
+      );
 
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-    return true;
-  }
+      if (!mounted) return;
 
-  void _openWebPaymentPage({
-    required String paymentUrl,
-    required String reference,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => GptPaymentWebViewPage(
-          paymentUrl: paymentUrl,
-          reference: reference,
+      final ok = resp["ok"] == true;
+      final msg = (resp["message"] ?? "").toString();
+      final url = (resp["url"] ?? "").toString();
+
+      if (!ok || url.isEmpty) {
+        _showSnackBar(
+          msg.isEmpty ? "PASSIMPAY request failed" : msg,
+          isError: true,
+        );
+        return;
+      }
+
+      _showSnackBar("Redirecting to payment...", isError: false);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PassimpayRedirectPage(
+            title: "${widget.depositMethod} Checkout",
+            url: url,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
   }
 
   void _showSnackBar(String message, {required bool isError}) {
@@ -165,9 +182,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
         content: Row(
           children: [
             Icon(
-              isError
-                  ? Icons.error_outline_rounded
-                  : Icons.check_circle_rounded,
+              isError ? Icons.error_outline_rounded : Icons.check_circle_rounded,
               color: Colors.white,
               size: 20,
             ),
@@ -175,8 +190,10 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
             Expanded(
               child: Text(
                 message,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
             ),
           ],
@@ -189,134 +206,10 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
     );
   }
 
-  Future<void> _showErrorAndAutoBack(String message) async {
-    _showSnackBar(message, isError: true);
-    await Future.delayed(const Duration(milliseconds: 1100));
-    if (!mounted) return;
-    Navigator.pop(context);
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    if (!_validateAmountOnly()) return;
-
-    setState(() => _submitting = true);
-
-    try {
-      final amount = _parseAmount() ?? 0;
-      final ip = await _service.fetchPublicIp();
-
-      final resp1 = await _service.initiateInvoice(
-        amount: amount,
-        currency: _currency,
-        methodCode: widget.methodCode,
-        callbackUrl: _callbackUrl,
-        webhookUrl: _webhookUrl,
-        ipAddress: ip,
-        country: _country,
-      );
-
-      if (!mounted) return;
-
-      final ok1 = resp1["ok"] == true;
-      final msg1 = (resp1["message"] ?? "").toString();
-      final paymentUrl1 = (resp1["payment_url"] ?? "").toString().trim();
-      final reference1 = (resp1["reference"] ?? "").toString();
-      final merchantRef1 = (resp1["merchant_reference"] ?? "").toString();
-
-      if (!ok1) {
-        await _showErrorAndAutoBack(
-          msg1.isEmpty ? "Payment request failed" : msg1,
-        );
-        return;
-      }
-
-      if (paymentUrl1.isEmpty) {
-        await _showErrorAndAutoBack(
-          "payment Server Down , Please Try Again Later ",
-        );
-        return;
-      }
-
-      if (merchantRef1.trim().isNotEmpty) {
-        await AppsFlyerDepositPollerService.instance
-            .addPendingReference(merchantRef1);
-      }
-
-      if (_isWebUrl(paymentUrl1)) {
-        _openWebPaymentPage(
-          paymentUrl: paymentUrl1,
-          reference: reference1,
-        );
-        return;
-      }
-
-      final launched = await _tryLaunchDeepLink(paymentUrl1);
-
-      if (launched) {
-        _showSnackBar("Opening ${widget.depositMethod}...", isError: false);
-        return;
-      }
-
-      _showSnackBar(
-        "${widget.depositMethod} app not available. Redirecting to UPI payment page...",
-        isError: false,
-      );
-
-      if (merchantRef1.trim().isNotEmpty) {
-        await InvoiceRemarksService.instance.updateRemarks(
-          merchantReference: merchantRef1,
-          remarks: _remarksAppNotAvailable,
-        );
-      }
-
-      final resp2 = await _service.initiateInvoice(
-        amount: amount,
-        currency: _currency,
-        methodCode: _fallbackMethodCode,
-        callbackUrl: _callbackUrl,
-        webhookUrl: _webhookUrl,
-        ipAddress: ip,
-        country: _country,
-      );
-
-      if (!mounted) return;
-
-      final ok2 = resp2["ok"] == true;
-      final msg2 = (resp2["message"] ?? "").toString();
-      final paymentUrl2 = (resp2["payment_url"] ?? "").toString().trim();
-      final reference2 = (resp2["reference"] ?? "").toString();
-      final merchantRef2 = (resp2["merchant_reference"] ?? "").toString();
-
-      if (!ok2) {
-        await _showErrorAndAutoBack(
-          msg2.isEmpty ? "Payment request failed" : msg2,
-        );
-        return;
-      }
-
-      if (paymentUrl2.isEmpty) {
-        await _showErrorAndAutoBack("payment Server Down , Please Try Again Later");
-        return;
-      }
-
-      if (merchantRef2.trim().isNotEmpty) {
-        await AppsFlyerDepositPollerService.instance
-            .addPendingReference(merchantRef2);
-      }
-
-      _openWebPaymentPage(
-        paymentUrl: paymentUrl2,
-        reference: reference2.isEmpty ? reference1 : reference2,
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
   @override
   void dispose() {
     _amountCtrl.dispose();
+    _phoneCtrl.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -372,26 +265,39 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
                       children: [
                         _HeaderCard(
                           depositMethod: widget.depositMethod,
+                          methodCode: widget.methodCode,
                           minDeposit: widget.minDeposit,
                           maxDeposit: widget.maxDeposit,
                           currency: _currency,
                         ),
                         const SizedBox(height: 24),
+
                         _AmountInputCard(
                           currency: _currency,
                           controller: _amountCtrl,
                           amountError: _amountError,
                         ),
-                        const SizedBox(height: 28),
-                        _SubmitButton(
-                          text: _submitting
-                              ? "Processing..."
-                              : "Pay via ${widget.depositMethod}",
-                          onTap: _submitting ? () {} : _submit,
-                          isLoading: _submitting,
+                        const SizedBox(height: 16),
+
+                        _PhoneInputCard(
+                          callingCode: _callingCode,
+                          controller: _phoneCtrl,
+                          phoneError: _phoneError,
                         ),
                         const SizedBox(height: 20),
-                        _SecurityBadge(),
+
+                        _ServiceFeeCard(),
+                        const SizedBox(height: 28),
+
+                        _SubmitButton(
+                          text: _submitting ? "Processing..." : "Proceed to Pay",
+                          onTap: _submitting ? () {} : _submit,
+                          isLoading: _submitting,
+                          accentColor: passimpayAccent,
+                        ),
+                        const SizedBox(height: 20),
+
+                        const _SecurityBadge(),
                         const SizedBox(height: 20),
                       ],
                     ),
@@ -410,7 +316,9 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
                     decoration: BoxDecoration(
                       color: cardBg,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.1),
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -440,7 +348,7 @@ class _PhonePeDepositPageState extends State<PhonePeDepositPage>
   }
 }
 
-/* ---------- UI Components (Customer form removed) ---------- */
+/* ---------- UI Components ---------- */
 
 class _IconButton extends StatelessWidget {
   final IconData icon;
@@ -459,7 +367,10 @@ class _IconButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.15),
+              width: 1,
+            ),
           ),
           child: Center(
             child: Icon(icon, color: Colors.white, size: 20),
@@ -472,12 +383,14 @@ class _IconButton extends StatelessWidget {
 
 class _HeaderCard extends StatelessWidget {
   final String depositMethod;
+  final String methodCode;
   final double minDeposit;
   final double maxDeposit;
   final String currency;
 
   const _HeaderCard({
     required this.depositMethod,
+    required this.methodCode,
     required this.minDeposit,
     required this.maxDeposit,
     required this.currency,
@@ -490,7 +403,10 @@ class _HeaderCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B).withOpacity(0.6),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
       ),
       child: Column(
         children: [
@@ -498,21 +414,24 @@ class _HeaderCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                colors: [Color(0xFFF59E0B), Color(0xFFFB923C)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF6366F1).withOpacity(0.4),
+                  color: const Color(0xFFF59E0B).withOpacity(0.35),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
               ],
             ),
-            child: const Icon(Icons.account_balance_rounded,
-                color: Colors.white, size: 40),
+            child: const Icon(
+              Icons.currency_exchange_rounded,
+              color: Colors.white,
+              size: 40,
+            ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -525,20 +444,34 @@ class _HeaderCard extends StatelessWidget {
               letterSpacing: -0.3,
             ),
           ),
+          const SizedBox(height: 10),
+          Text(
+            "Method Code: $methodCode",
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.65),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.08),
               borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.15),
+                width: 1,
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.info_outline_rounded,
-                    color: const Color(0xFFF59E0B).withOpacity(0.9), size: 16),
+                Icon(
+                  Icons.info_outline_rounded,
+                  color: const Color(0xFFF59E0B).withOpacity(0.9),
+                  size: 16,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   "$currency ${minDeposit.toStringAsFixed(0)} - $currency ${maxDeposit.toStringAsFixed(0)}",
@@ -571,17 +504,50 @@ class _AmountInputCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _CardShell(
-      borderColor: amountError != null
-          ? Colors.red.shade400.withOpacity(0.5)
-          : Colors.white.withOpacity(0.1),
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B).withOpacity(0.6),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: amountError != null
+              ? Colors.red.shade400.withOpacity(0.5)
+              : Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CardTitle(
-              icon: Icons.account_balance_wallet_outlined,
-              title: "Deposit Amount"),
-          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFF59E0B), Color(0xFFFB923C)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.account_balance_wallet_outlined,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "Deposit Amount",
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.95),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.05),
@@ -610,7 +576,8 @@ class _AmountInputCard extends StatelessWidget {
                   child: IntrinsicWidth(
                     child: TextField(
                       controller: controller,
-                      keyboardType: TextInputType.number,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.95),
@@ -639,8 +606,218 @@ class _AmountInputCard extends StatelessWidget {
           ),
           if (amountError != null) ...[
             const SizedBox(height: 14),
-            _ErrorPill(text: amountError!),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade400.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.red.shade400.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red.shade400,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      amountError!,
+                      style: TextStyle(
+                        color: Colors.red.shade400,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PhoneInputCard extends StatelessWidget {
+  final String callingCode;
+  final TextEditingController controller;
+  final String? phoneError;
+
+  const _PhoneInputCard({
+    required this.callingCode,
+    required this.controller,
+    this.phoneError,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B).withOpacity(0.6),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: phoneError != null
+              ? Colors.red.shade400.withOpacity(0.5)
+              : Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Phone Number",
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: phoneError != null
+                    ? Colors.red.shade400.withOpacity(0.4)
+                    : Colors.white.withOpacity(0.1),
+                width: 1,
+              ),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                Text(
+                  callingCode,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 1,
+                  height: 28,
+                  color: Colors.white.withOpacity(0.12),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.phone,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.95),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: "Enter phone number",
+                      hintStyle: TextStyle(
+                        color: Colors.white.withOpacity(0.35),
+                      ),
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (phoneError != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade400.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.red.shade400.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red.shade400,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      phoneError!,
+                      style: TextStyle(
+                        color: Colors.red.shade400,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceFeeCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFFF59E0B).withOpacity(0.15),
+            const Color(0xFFF59E0B).withOpacity(0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFF59E0B).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.info_rounded,
+              color: const Color(0xFFF59E0B).withOpacity(0.9),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              "Service fee of 10% will be charged on this transaction",
+              style: TextStyle(
+                color: const Color(0xFFF59E0B).withOpacity(0.95),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -651,11 +828,13 @@ class _SubmitButton extends StatelessWidget {
   final String text;
   final VoidCallback onTap;
   final bool isLoading;
+  final Color accentColor;
 
   const _SubmitButton({
     required this.text,
     required this.onTap,
     required this.isLoading,
+    required this.accentColor,
   });
 
   @override
@@ -669,15 +848,15 @@ class _SubmitButton extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+            gradient: LinearGradient(
+              colors: [accentColor, accentColor.withOpacity(0.8)],
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6366F1).withOpacity(0.4),
+                color: accentColor.withOpacity(0.35),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
@@ -696,7 +875,11 @@ class _SubmitButton extends StatelessWidget {
                   ),
                 )
               else
-                const Icon(Icons.payment_rounded, color: Colors.white, size: 22),
+                const Icon(
+                  Icons.payment_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
               const SizedBox(width: 12),
               Text(
                 text,
@@ -707,6 +890,21 @@ class _SubmitButton extends StatelessWidget {
                   letterSpacing: 0.2,
                 ),
               ),
+              if (!isLoading) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -716,6 +914,8 @@ class _SubmitButton extends StatelessWidget {
 }
 
 class _SecurityBadge extends StatelessWidget {
+  const _SecurityBadge();
+
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -725,7 +925,9 @@ class _SecurityBadge extends StatelessWidget {
           color: const Color(0xFF10B981).withOpacity(0.1),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: const Color(0xFF10B981).withOpacity(0.3), width: 1),
+            color: const Color(0xFF10B981).withOpacity(0.3),
+            width: 1,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -736,8 +938,11 @@ class _SecurityBadge extends StatelessWidget {
                 color: const Color(0xFF10B981).withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.verified_user_rounded,
-                  color: Color(0xFF10B981), size: 16),
+              child: const Icon(
+                Icons.verified_user_rounded,
+                color: Color(0xFF10B981),
+                size: 16,
+              ),
             ),
             const SizedBox(width: 10),
             Text(
@@ -751,95 +956,6 @@ class _SecurityBadge extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _CardShell extends StatelessWidget {
-  final Widget child;
-  final Color borderColor;
-
-  const _CardShell({required this.child, required this.borderColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B).withOpacity(0.6),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: borderColor, width: 1),
-      ),
-      child: child,
-    );
-  }
-}
-
-class _CardTitle extends StatelessWidget {
-  final IconData icon;
-  final String title;
-
-  const _CardTitle({required this.icon, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: Colors.white, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          title,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.95),
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            letterSpacing: -0.3,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ErrorPill extends StatelessWidget {
-  final String text;
-
-  const _ErrorPill({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.red.shade400.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade400.withOpacity(0.3), width: 1),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline_rounded,
-              color: Colors.red.shade400, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: Colors.red.shade400,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

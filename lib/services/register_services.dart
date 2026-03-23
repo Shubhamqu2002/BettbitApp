@@ -13,7 +13,7 @@ import '../util/token_manager.dart';
 // ✅ APPSFLYER
 import 'analytics/appsflyer_service.dart';
 
-// ✅ NEW: operator code service
+// ✅ operator code + user_code source
 import 'operator_code_service.dart';
 
 class RegisterService {
@@ -148,7 +148,9 @@ class RegisterService {
 
     final effectivePlatformCode = storedOperatorCode.trim().isNotEmpty
         ? storedOperatorCode.trim()
-        : (platformCode.trim().isNotEmpty ? platformCode.trim() : _platformCodeFallback);
+        : (platformCode.trim().isNotEmpty
+            ? platformCode.trim()
+            : _platformCodeFallback);
 
     debugPrint("🟨 [REGISTER] effectivePlatformCode => $effectivePlatformCode");
 
@@ -252,7 +254,8 @@ class RegisterService {
     return data;
   }
 
-  /// ✅ PATCH /api/gamer/by-username/{username}/platform-code?code=<OPERATOR>&agencyId=<AF_UID>
+  /// ✅ PATCH /api/gamer/by-username/{username}/platform-code
+  /// Query: code=<OPERATOR>&agencyId=<AF_UID>&userCode=<SAME_USER_CODE>
   Future<void> _firePlatformCodePatchAfterRegistration({
     required String userName,
     required String token,
@@ -264,6 +267,7 @@ class RegisterService {
         return;
       }
 
+      // ✅ Keep existing agencyId logic (AppsFlyer UID)
       final afUid = await AppsFlyerService.instance.getUid();
       final agencyId = (afUid ?? '').trim();
 
@@ -272,18 +276,31 @@ class RegisterService {
         return;
       }
 
-      final finalCode = platformCode.trim().isNotEmpty ? platformCode.trim() : _platformCodeFallback;
+      // ✅ NEW: same user_code as OperatorCodeService
+      final userCode = await OperatorCodeService.instance.getOrCreateUserCode();
+      final userCodeTrim = userCode.trim();
+
+      if (userCodeTrim.isEmpty) {
+        debugPrint('⚠️ [PATCH][PLATFORM] Skipped: userCode not available');
+        return;
+      }
+
+      final finalCode = platformCode.trim().isNotEmpty
+          ? platformCode.trim()
+          : _platformCodeFallback;
 
       final uri = Uri.parse(
         '$_baseUrl/api/gamer/by-username/$userName/platform-code',
       ).replace(queryParameters: {
         'code': finalCode,
-        'agencyId': agencyId,
+        'agencyId': agencyId,   // ✅ unchanged (AF UID)
+        'userCode': userCodeTrim, // ✅ NEW param
       });
 
       debugPrint('➡️ [PATCH][PLATFORM] URL: $uri');
       debugPrint('🏷️ [PATCH][PLATFORM] code: $finalCode');
       debugPrint('🔐 [PATCH][PLATFORM] agencyId(AF UID): $agencyId');
+      debugPrint('🧾 [PATCH][PLATFORM] userCode: $userCodeTrim');
 
       final res = await http.patch(
         uri,
@@ -322,7 +339,9 @@ class RegisterService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-      debugPrint('⬅️ [MASCOT] status=${res.statusCode} body=${_shortBody(res.body)}');
+      debugPrint(
+        '⬅️ [MASCOT] status=${res.statusCode} body=${_shortBody(res.body)}',
+      );
     } catch (e) {
       debugPrint('❌ [MASCOT] Error: $e');
     }
@@ -343,7 +362,9 @@ class RegisterService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-      debugPrint('⬅️ [TORROSPIN] status=${res.statusCode} body=${_shortBody(res.body)}');
+      debugPrint(
+        '⬅️ [TORROSPIN] status=${res.statusCode} body=${_shortBody(res.body)}',
+      );
     } catch (e) {
       debugPrint('❌ [TORROSPIN] Error: $e');
     }
