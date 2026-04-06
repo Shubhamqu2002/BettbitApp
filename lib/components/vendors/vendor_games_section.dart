@@ -74,8 +74,11 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
   String? _launchingGameName;
   bool _isCheckingBalance = false;
 
-  // ✅ Track async requests to avoid old responses overriding UI (VERY IMPORTANT)
+  // ✅ Track async requests to avoid old responses overriding UI
   int _gamesReqId = 0;
+
+  // ✅ NEW: prevent repeated auto-open after coming back from iframe
+  bool _sportsLuckySportsAutoOpened = false;
 
   void _log(String msg) {
     if (kDebugMode) debugPrint("🟦 [VendorGames] $msg");
@@ -84,6 +87,55 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
   void _fire(Future<void> f) {}
 
   bool get _searchActive => _searchQuery.trim().isNotEmpty;
+
+  bool get _isSportsCategory => widget.category.trim().toUpperCase() == 'SPORTS';
+
+  bool _isLuckySportsGame(GameModel game) {
+    final gameName = game.gameName.trim().toUpperCase();
+    final gameCode = game.gameCode.trim().toUpperCase();
+    final vendorCode = game.vendorCode.trim().toUpperCase();
+
+    return gameName == 'LUCKY SPORTS' ||
+        gameName == 'LUCKYSPORTS' ||
+        gameCode == 'LUCKY SPORTS' ||
+        gameCode == 'LUCKYSPORTS' ||
+        vendorCode == 'LUCKY SPORTS' ||
+        vendorCode == 'LUCKYSPORTS';
+  }
+
+  bool _shouldAutoOpenLuckySports({
+    required bool reset,
+    required List<GameModel> games,
+  }) {
+    if (!_isSportsCategory) return false;
+    if (_sportsLuckySportsAutoOpened) return false;
+    if (!reset) return false;
+    if (_searchActive) return false;
+    if ((_selectedVendorCode ?? _allVendorCode) != _allVendorCode) return false;
+    if (games.length != 1) return false;
+
+    return _isLuckySportsGame(games.first);
+  }
+
+  Future<void> _maybeAutoOpenLuckySports({
+    required bool reset,
+    required List<GameModel> games,
+  }) async {
+    if (!_shouldAutoOpenLuckySports(reset: reset, games: games)) return;
+
+    final luckyGame = games.first;
+    _sportsLuckySportsAutoOpened = true;
+
+    _log(
+      "🎯 Auto-open LuckySports triggered for SPORTS category. "
+      "games=${games.length}, game=${luckyGame.gameName}",
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _fire(_onGameTap(luckyGame));
+    });
+  }
 
   String _normalizeImageUrl(String raw) {
     final s = raw.trim();
@@ -174,6 +226,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _searchDebounce?.cancel();
       _searchCtrl.clear();
       _searchQuery = "";
+      _sportsLuckySportsAutoOpened = false; // ✅ reset when category changes
       _loadVendorsAndInitialGames();
     }
   }
@@ -290,8 +343,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     }
   }
 
-  // ✅ Main loader decides: normal list OR search list
-  // ✅ Added request-id guard + better logs + stable pagination for search
   Future<void> _loadGames({bool reset = false}) async {
     if (_selectedVendorCode == null) return;
 
@@ -331,10 +382,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
           size: 24,
         );
 
-        // ✅ DO NOT category-filter here (it causes false "no games")
-        // because backend returns categoryCode like "slot" but screen may pass "SLOT" / "Slot" etc.
-        // If you want, do it ONLY when you are 100% sure keys match.
-
         if (!mounted) return;
         if (reqId != _gamesReqId) {
           _log("🟨 IGNORE old search response reqId=$reqId current=$_gamesReqId");
@@ -362,7 +409,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       }
 
       // -------------------------
-      // ✅ NORMAL MODE (UNCHANGED)
+      // ✅ NORMAL MODE
       // -------------------------
       final vendorCodeToSend = _selectedVendorCode ?? _allVendorCode;
 
@@ -400,6 +447,12 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
       _log(
           "✅ LIST UI updated: games=${_games.length} total=$_totalGames hasMore=$_hasMoreGames reqId=$reqId");
+
+      // ✅ NEW: auto-open LuckySports only for SPORTS tab
+      await _maybeAutoOpenLuckySports(
+        reset: reset,
+        games: result.games,
+      );
     } catch (e) {
       if (!mounted) return;
       if (reqId != _gamesReqId) {
@@ -430,8 +483,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _errorMessage = null;
     });
 
-    // ✅ If searching, vendor tap should not break search results
-    // We still reload, but search has priority in _loadGames.
     _currentGamePage = 0;
     await _loadGames(reset: true);
   }
@@ -448,7 +499,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     await _loadGames(reset: true);
   }
 
-  // ✅ Search handlers
   void _onSearchChanged(String v) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
@@ -463,7 +513,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
       _log("⌨️ onSearchChanged -> '$_searchQuery'");
 
-      // reset paging + reload (search has priority)
       _currentGamePage = 0;
       await _loadGames(reset: true);
 
@@ -519,7 +568,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     return {'totalBalance': stored, 'currency': currency};
   }
 
-  // ✅ GAME TAP (UNCHANGED)
   Future<void> _onGameTap(GameModel game) async {
     if (_isLaunchingGame) return;
     if (_isCheckingBalance) return;
