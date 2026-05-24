@@ -8,10 +8,9 @@ class AccountRecordsTable extends StatefulWidget {
   final String? error;
   final VoidCallback onRetry;
 
-  // pagination props (from API)
   final int totalElements;
   final int totalPages;
-  final int pageNumber; // 0-based
+  final int pageNumber;
   final int pageSize;
   final bool isFirst;
   final bool isLast;
@@ -118,18 +117,14 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
     );
   }
 
-  // ✅ NEW: for CONFIRMED show transactionValue, else show amount (PENDING/REJECTED etc.)
   double _displayAmount(AccountLedgerItem it) {
     final st = it.status.trim().toUpperCase();
     if (st == "CONFIRMED") {
-      // If your model has transactionValue, this will work directly.
-      // If it's nullable in your model, keep the fallback as 0.0.
-      return (it.transactionValue);
+      return it.transactionValue;
     }
     return it.amount;
   }
 
-  // ✅ NEW: image row (replaces showing URL text)
   Widget _kvImage(String k, String? url) {
     final u = (url ?? "").trim();
     final hasImage = u.isNotEmpty && u != "--";
@@ -203,8 +198,11 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.broken_image_rounded,
-                                          color: Colors.white.withOpacity(0.65), size: 22),
+                                      Icon(
+                                        Icons.broken_image_rounded,
+                                        color: Colors.white.withOpacity(0.65),
+                                        size: 22,
+                                      ),
                                       const SizedBox(height: 6),
                                       Text(
                                         "Failed",
@@ -256,7 +254,6 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
     );
   }
 
-  // ✅ NEW: modal image preview
   void _openImageModal(String url) {
     showDialog(
       context: context,
@@ -295,48 +292,6 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                     child: Image.network(
                       url,
                       fit: BoxFit.contain,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        return Container(
-                          color: Colors.black.withOpacity(0.35),
-                          alignment: Alignment.center,
-                          child: SizedBox(
-                            height: 26,
-                            width: 26,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.6,
-                              value: progress.expectedTotalBytes == null
-                                  ? null
-                                  : progress.cumulativeBytesLoaded /
-                                      (progress.expectedTotalBytes ?? 1),
-                              color: Colors.white.withOpacity(0.9),
-                            ),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, _, __) {
-                        return Container(
-                          color: Colors.black.withOpacity(0.35),
-                          alignment: Alignment.center,
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.broken_image_rounded,
-                                  color: Colors.white.withOpacity(0.75), size: 42),
-                              const SizedBox(height: 10),
-                              Text(
-                                "Unable to load image",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
                     ),
                   ),
                   Positioned(
@@ -396,46 +351,23 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
   Widget _paginationBar() {
     final hasPages = widget.totalPages > 1;
 
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF7C3AED).withOpacity(0.18),
-            const Color(0xFF2563EB).withOpacity(0.14),
-            const Color(0xFF22C55E).withOpacity(0.10),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
-      ),
-      child: Row(
+    Widget pageControls() {
+      return Row(
         children: [
-          Expanded(
-            child: Text(
-              "Showing ${_fromIndex()}-${_toIndex()} of ${widget.totalElements}",
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
-                fontWeight: FontWeight.w800,
-                fontSize: 12,
-              ),
-            ),
+          _navBtn(
+            icon: Icons.chevron_left_rounded,
+            enabled: !widget.isFirst,
+            onTap: () => widget.onPageChanged(widget.pageNumber - 1),
           ),
-          if (hasPages) ...[
-            _navBtn(
-              icon: Icons.chevron_left_rounded,
-              enabled: !widget.isFirst,
-              onTap: () => widget.onPageChanged(widget.pageNumber - 1),
-            ),
-            const SizedBox(width: 8),
-            SingleChildScrollView(
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               child: Row(
                 children: List.generate(widget.totalPages, (i) {
                   final selected = i == widget.pageNumber;
+
                   return GestureDetector(
                     onTap: () => widget.onPageChanged(i),
                     child: AnimatedContainer(
@@ -476,14 +408,70 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                 }),
               ),
             ),
-            const SizedBox(width: 4),
-            _navBtn(
-              icon: Icons.chevron_right_rounded,
-              enabled: !widget.isLast,
-              onTap: () => widget.onPageChanged(widget.pageNumber + 1),
-            ),
-          ],
+          ),
+          const SizedBox(width: 4),
+          _navBtn(
+            icon: Icons.chevron_right_rounded,
+            enabled: !widget.isLast,
+            onTap: () => widget.onPageChanged(widget.pageNumber + 1),
+          ),
         ],
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF7C3AED).withOpacity(0.18),
+            const Color(0xFF2563EB).withOpacity(0.14),
+            const Color(0xFF22C55E).withOpacity(0.10),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final infoText = Text(
+            "Showing ${_fromIndex()}-${_toIndex()} of ${widget.totalElements}",
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.85),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          );
+
+          if (!hasPages) return infoText;
+
+          if (constraints.maxWidth < 430) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                infoText,
+                const SizedBox(height: 10),
+                pageControls(),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: infoText),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: constraints.maxWidth * 0.58,
+                child: pageControls(),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -579,7 +567,7 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                   .toUpperCase();
               final typeC = _typeColor(txType);
 
-              final shownAmount = _displayAmount(it); // ✅ here
+              final shownAmount = _displayAmount(it);
 
               return AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
@@ -697,7 +685,6 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            // ✅ CHANGED: show transactionValue for CONFIRMED, else amount
                             Text(
                               _money(it.currency, shownAmount),
                               style: const TextStyle(
@@ -749,10 +736,7 @@ class _AccountRecordsTableState extends State<AccountRecordsTable> {
                               _kv("Wallet ID", it.walletId),
                               _kv("User Name", it.userName),
                               _kv("Transaction ID", it.transactionId),
-
-                              // ✅ CHANGED: same place where you show Amount
                               _kv("Amount", _money(it.currency, shownAmount)),
-
                               _kv("Current Balance", _money(it.currency, it.currentBalance)),
                               _kv("Bonus Balance", _money(it.currency, it.bonusBalance)),
                               _kv("Transaction Type",

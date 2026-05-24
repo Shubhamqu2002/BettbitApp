@@ -13,6 +13,7 @@ import '../../pages/deposit_page.dart';
 
 import '../../services/luckysports/luckysport_service.dart';
 import '../../services/addmember/addmember_service.dart';
+import '../../services/onegamehub/onegamehub_service.dart';
 
 import '../../services/game_search_service.dart';
 import '../branded_loader.dart';
@@ -46,11 +47,11 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
   final VendorGameService _service = VendorGameService();
   final WalletService _walletService = WalletService();
   final GameSearchService _searchService = GameSearchService.instance;
+  final OneGameHubService _oneGameHubService = OneGameHubService();
 
   final ScrollController _scrollController = ScrollController();
   final AddMemberService _addMember = AddMemberService.instance;
 
-  // ✅ Search state
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
   bool _isSearching = false;
@@ -74,10 +75,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
   String? _launchingGameName;
   bool _isCheckingBalance = false;
 
-  // ✅ Track async requests to avoid old responses overriding UI
   int _gamesReqId = 0;
-
-  // ✅ NEW: prevent repeated auto-open after coming back from iframe
   bool _sportsLuckySportsAutoOpened = false;
 
   void _log(String msg) {
@@ -88,7 +86,8 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   bool get _searchActive => _searchQuery.trim().isNotEmpty;
 
-  bool get _isSportsCategory => widget.category.trim().toUpperCase() == 'SPORTS';
+  bool get _isSportsCategory =>
+      widget.category.trim().toUpperCase() == 'SPORTS';
 
   bool _isLuckySportsGame(GameModel game) {
     final gameName = game.gameName.trim().toUpperCase();
@@ -126,11 +125,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     final luckyGame = games.first;
     _sportsLuckySportsAutoOpened = true;
 
-    _log(
-      "🎯 Auto-open LuckySports triggered for SPORTS category. "
-      "games=${games.length}, game=${luckyGame.gameName}",
-    );
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _fire(_onGameTap(luckyGame));
@@ -161,6 +155,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     double? iconSize,
   }) {
     final normalized = _normalizeImageUrl(url);
+
     if (normalized.isEmpty) {
       return Icon(
         Icons.image_not_supported_outlined,
@@ -214,19 +209,20 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     _loadVendorsAndInitialGames();
 
     _searchCtrl.addListener(() {
-      if (mounted) setState(() {}); // keep clear icon updated
+      if (mounted) setState(() {});
     });
   }
 
   @override
   void didUpdateWidget(covariant VendorGamesSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (oldWidget.category != widget.category ||
         oldWidget.platform != widget.platform) {
       _searchDebounce?.cancel();
       _searchCtrl.clear();
       _searchQuery = "";
-      _sportsLuckySportsAutoOpened = false; // ✅ reset when category changes
+      _sportsLuckySportsAutoOpened = false;
       _loadVendorsAndInitialGames();
     }
   }
@@ -242,6 +238,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   void _onScroll() {
     if (!_hasMoreGames || _isLoadingMoreGames || _isLoadingGames) return;
+
     if (_scrollController.position.pixels >
         _scrollController.position.maxScrollExtent - 200) {
       _fire(_loadMoreGames());
@@ -324,6 +321,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
 
       if (!mounted) return;
+
       setState(() {
         _vendors = vendors;
         _isLoadingVendors = false;
@@ -332,13 +330,16 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       await _loadGames(reset: true);
     } catch (e) {
       if (!mounted) return;
+
       final msg = _friendlyErrorMessage(e);
+
       setState(() {
         _isLoadingVendors = false;
         _isLoadingGames = false;
         _isLoadingMoreGames = false;
         _errorMessage = msg;
       });
+
       _showPrettyError('Unable to load vendors', msg);
     }
   }
@@ -364,16 +365,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     }
 
     try {
-      // -------------------------
-      // ✅ SEARCH MODE
-      // -------------------------
       if (_searchActive) {
         final prefs = await SharedPreferences.getInstance();
         final cc = (prefs.getString('registered_country') ?? 'IN').trim();
         final countryCode = cc.isEmpty ? 'IN' : cc;
-
-        _log(
-            "🔎 SEARCH -> q='$_searchQuery' cc='$countryCode' page=$_currentGamePage size=24 reset=$reset reqId=$reqId");
 
         final result = await _searchService.searchGames(
           query: _searchQuery,
@@ -383,10 +378,8 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         );
 
         if (!mounted) return;
-        if (reqId != _gamesReqId) {
-          _log("🟨 IGNORE old search response reqId=$reqId current=$_gamesReqId");
-          return;
-        }
+
+        if (reqId != _gamesReqId) return;
 
         setState(() {
           if (reset) {
@@ -403,18 +396,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
           _errorMessage = null;
         });
 
-        _log(
-            "✅ SEARCH UI updated: games=${_games.length} total=$_totalGames hasMore=$_hasMoreGames reqId=$reqId");
         return;
       }
 
-      // -------------------------
-      // ✅ NORMAL MODE
-      // -------------------------
       final vendorCodeToSend = _selectedVendorCode ?? _allVendorCode;
-
-      _log(
-          "🎮 LIST -> category=${widget.category} vendor=$vendorCodeToSend platform=${widget.platform} page=$_currentGamePage size=24 reset=$reset reqId=$reqId");
 
       final result = await _service.fetchGames(
         category: widget.category,
@@ -425,10 +410,8 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       );
 
       if (!mounted) return;
-      if (reqId != _gamesReqId) {
-        _log("🟨 IGNORE old list response reqId=$reqId current=$_gamesReqId");
-        return;
-      }
+
+      if (reqId != _gamesReqId) return;
 
       setState(() {
         if (reset) {
@@ -445,32 +428,30 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         _errorMessage = null;
       });
 
-      _log(
-          "✅ LIST UI updated: games=${_games.length} total=$_totalGames hasMore=$_hasMoreGames reqId=$reqId");
-
-      // ✅ NEW: auto-open LuckySports only for SPORTS tab
       await _maybeAutoOpenLuckySports(
         reset: reset,
         games: result.games,
       );
     } catch (e) {
       if (!mounted) return;
-      if (reqId != _gamesReqId) {
-        _log("🟨 IGNORE error from old reqId=$reqId current=$_gamesReqId: $e");
-        return;
-      }
+
+      if (reqId != _gamesReqId) return;
+
       final msg = _friendlyErrorMessage(e);
+
       setState(() {
         _isLoadingGames = false;
         _isLoadingMoreGames = false;
         _errorMessage = msg;
       });
+
       _showPrettyError('Unable to load games', msg);
     }
   }
 
   Future<void> _loadMoreGames() async {
     if (!_hasMoreGames || _isLoadingMoreGames) return;
+
     _currentGamePage += 1;
     await _loadGames(reset: false);
   }
@@ -501,6 +482,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   void _onSearchChanged(String v) {
     _searchDebounce?.cancel();
+
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
       final q = v.trim();
 
@@ -510,8 +492,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         _searchQuery = q;
         _isSearching = q.isNotEmpty;
       });
-
-      _log("⌨️ onSearchChanged -> '$_searchQuery'");
 
       _currentGamePage = 0;
       await _loadGames(reset: true);
@@ -533,8 +513,6 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       _isSearching = false;
     });
 
-    _log("🧹 clearSearch -> back to normal list");
-
     _currentGamePage = 0;
     await _loadGames(reset: true);
   }
@@ -543,6 +521,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     final prefs = await SharedPreferences.getInstance();
 
     double stored = prefs.getDouble(kTotalBalanceKey) ?? 0.0;
+
     String currency = (prefs.getString(kCurrencyKey) ?? 'INR').trim();
     currency = currency.isEmpty ? 'INR' : currency;
 
@@ -553,6 +532,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
     if ((stored <= 0) || isStale) {
       final gamerId = (prefs.getString('gamer_id') ?? '').trim();
+
       if (gamerId.isNotEmpty) {
         final live = await _walletService.fetchBalance(gamerId);
 
@@ -561,11 +541,17 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         await prefs.setInt(kBalanceUpdatedAtKey, now);
 
         stored = live.totalBalance;
-        if (live.currency.trim().isNotEmpty) currency = live.currency.trim();
+
+        if (live.currency.trim().isNotEmpty) {
+          currency = live.currency.trim();
+        }
       }
     }
 
-    return {'totalBalance': stored, 'currency': currency};
+    return {
+      'totalBalance': stored,
+      'currency': currency,
+    };
   }
 
   Future<void> _onGameTap(GameModel game) async {
@@ -573,23 +559,27 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
     if (_isCheckingBalance) return;
 
     _isCheckingBalance = true;
+
     try {
       final bal = await _getReliableBalance();
+
       final totalBalance = (bal['totalBalance'] as double?) ?? 0.0;
-      final currency = (bal['currency'] as String?) ?? 'INR';
+      final balanceCurrency = (bal['currency'] as String?) ?? 'INR';
 
       if (totalBalance <= 0) {
         if (!mounted) return;
+
         await showDepositRequiredModal(
           context,
           totalBalance: totalBalance,
-          currency: currency,
+          currency: balanceCurrency,
           onDepositTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const DepositPage()),
             );
           },
         );
+
         return;
       }
     } finally {
@@ -603,18 +593,26 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
+
       final userName = (prefs.getString('user_name') ?? '').trim();
+      final gamerId = (prefs.getString('gamer_id') ?? '').trim();
+
+      String currency = (prefs.getString('currency') ?? 'INR').trim();
+      currency = currency.isEmpty ? 'INR' : currency;
 
       final registeredCountry =
           (prefs.getString('registered_country') ?? '').trim();
       final countryCodeFallback = (prefs.getString('countryCode') ?? '').trim();
+
       final cc = registeredCountry.isNotEmpty
           ? registeredCountry
           : (countryCodeFallback.isNotEmpty ? countryCodeFallback : 'IN');
 
       if (userName.isEmpty) {
         _showPrettyError(
-            'Login required', 'User name not found. Please re-login.');
+          'Login required',
+          'User name not found. Please re-login.',
+        );
         return;
       }
 
@@ -622,46 +620,67 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       final vendorCode = game.vendorCode.toUpperCase().trim();
 
       _log(
-          "Tap game=${game.gameName} vendorCode=$vendorCode aggregator=$aggregator");
+        "Tap game=${game.gameName} vendorCode=$vendorCode aggregator=$aggregator",
+      );
 
       String? launchUrl;
       String? luckyWidgetHtml;
 
       if (vendorCode == 'LUCKY SPORTS' || vendorCode == 'LUCKYSPORTS') {
-        _log("➡️ LuckySports: ensure member create (one-time) ...");
+        _log("➡️ LuckySports: ensure member create.");
+
         await _addMember.ensureLuckySportsMemberCreatedOnce(
           playerId: userName,
           countryCode: cc,
         );
-        _log("✅ LuckySports: member ensured. Now load widget HTML...");
 
         luckyWidgetHtml = await LuckySportService.instance.getWidgetLoaderHtml(
           playerId: userName,
           countryCode: cc,
           language: 'en',
         );
-        _log("✅ LuckySports widget_loader_script len=${luckyWidgetHtml.length}");
       } else if (aggregator == 'TORROSPIN') {
-        _log("➡️ Torrospin: ensure adduser (one-time) ...");
+        _log("➡️ Torrospin launch flow.");
+
         await _addMember.ensureTorrospinUserAddedOnce(userName: userName);
-        _log("✅ Torrospin: adduser ensured. Now generate launch url...");
 
         launchUrl = await _service.generateTorrospinLaunchUrl(
           userName: userName,
           gameCode: game.gameCode,
         );
       } else if (aggregator == 'MASCOT') {
-        _log("➡️ Mascot: ensure Player.Set (one-time) ...");
+        _log("➡️ Mascot launch flow.");
+
         await _addMember.ensureMascotPlayerSetOnce(userName: userName);
-        _log("✅ Mascot: Player.Set ensured. Now create session...");
 
         launchUrl = await _service.createMascotSession(
           userName: userName,
           gameCode: game.gameCode,
         );
+      } else if (aggregator == '1GAMEHUB' || aggregator.isEmpty) {
+        if (gamerId.isEmpty) {
+          _showPrettyError(
+            'Login required',
+            'Gamer ID not found. Please re-login.',
+          );
+          return;
+        }
+
+        _log("➡️ 1GameHub launch API calling gameCode=${game.gameCode}");
+
+        launchUrl = await _oneGameHubService.launchGame(
+          gameCode: game.gameCode,
+          playerId: gamerId,
+          currency: currency,
+          userName: userName,
+        );
+
+        _log("✅ 1GameHub launchUrl=$launchUrl");
       } else {
-        _showPrettyError('Launch not supported',
-            'Game launch is not configured for $aggregator.');
+        _showPrettyError(
+          'Launch not supported',
+          'Game launch is not configured for $aggregator.',
+        );
         return;
       }
 
@@ -678,6 +697,14 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
           ),
         );
       } else {
+        if (launchUrl == null || launchUrl.trim().isEmpty) {
+          _showPrettyError(
+            'Unable to launch game',
+            'Launch URL not found.',
+          );
+          return;
+        }
+
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => GameWebViewPage(
@@ -771,9 +798,13 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
 
   String _selectedVendorLabel() {
     final code = (_selectedVendorCode ?? _allVendorCode);
+
     if (code == _allVendorCode) return 'ALL';
+
     final v = _vendors.where((x) => x.vendorCode == code);
+
     if (v.isNotEmpty) return v.first.vendorName;
+
     return code;
   }
 
@@ -854,7 +885,9 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                       Text(
                         '$_totalGames games',
                         style: const TextStyle(
-                            color: Colors.white70, fontSize: 12),
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                   ],
                 ),
@@ -872,7 +905,9 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                     child: Text(
                       _errorMessage!,
                       style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 12),
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
               ],
@@ -889,7 +924,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
-          child: _miniBrandedLoader(size: 46, label: 'Loading games...'),
+          child: _miniBrandedLoader(
+            size: 46,
+            label: 'Loading games...',
+          ),
         ),
       );
     }
@@ -899,13 +937,18 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
         padding: EdgeInsets.symmetric(vertical: 8.0),
         child: Text(
           'No games available for this selection.',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 13,
+          ),
         ),
       );
     }
 
     final width = MediaQuery.of(context).size.width;
+
     int crossAxisCount = 3;
+
     if (width < 360) {
       crossAxisCount = 2;
     } else if (width > 600) {
@@ -924,6 +967,7 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
       ),
       itemBuilder: (context, index) {
         final game = _games[index];
+
         return GestureDetector(
           onTap: () => _fire(_onGameTap(game)),
           child: _buildGameCard(game),
@@ -968,7 +1012,9 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
                     child: Container(
                       margin: const EdgeInsets.all(6),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.5),
                         borderRadius: BorderRadius.circular(999),
@@ -985,7 +1031,10 @@ class _VendorGamesSectionState extends State<VendorGamesSection> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 6,
+            ),
             child: Text(
               game.gameName,
               maxLines: 2,
@@ -1051,7 +1100,10 @@ class _GameWebViewPageState extends State<GameWebViewPage> {
         backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close_rounded, color: Colors.white),
+          icon: const Icon(
+            Icons.close_rounded,
+            color: Colors.white,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -1073,7 +1125,10 @@ class _GameWebViewPageState extends State<GameWebViewPage> {
             Container(
               color: Colors.black.withOpacity(0.25),
               child: const Center(
-                child: BrandedLoader(brandName: 'Bettbit', size: 64),
+                child: BrandedLoader(
+                  brandName: 'Bettbit',
+                  size: 64,
+                ),
               ),
             ),
         ],
@@ -1112,15 +1167,19 @@ class _LuckySportWebViewPageState extends State<LuckySportWebViewPage> {
 
   void _hideLoaderOnce(String reason) {
     if (_loaderHidden) return;
+
     _loaderHidden = true;
     _hardStop?.cancel();
+
     _log("✅ hideLoaderOnce: $reason");
+
     if (mounted) setState(() => _isLoading = false);
   }
 
   String _ensureFullHtmlDoc(String html) {
     final s = html.trim();
     final lower = s.toLowerCase();
+
     if (lower.contains('<html') || lower.contains('<!doctype')) return s;
 
     return """
@@ -1151,16 +1210,25 @@ $s
         NavigationDelegate(
           onProgress: (p) {
             _progress = p;
-            if (!_loaderHidden && mounted) setState(() {});
+
+            if (!_loaderHidden && mounted) {
+              setState(() {});
+            }
+
             if (p >= 85) {
               Future.delayed(const Duration(milliseconds: 450), () {
-                if (!_loaderHidden) _hideLoaderOnce("progress>=85");
+                if (!_loaderHidden) {
+                  _hideLoaderOnce("progress>=85");
+                }
               });
             }
           },
           onPageStarted: (url) {
             _log("onPageStarted: $url");
-            if (!_loaderHidden && mounted) setState(() => _isLoading = true);
+
+            if (!_loaderHidden && mounted) {
+              setState(() => _isLoading = true);
+            }
           },
           onPageFinished: (url) async {
             _log("onPageFinished: $url");
@@ -1168,13 +1236,18 @@ $s
           },
           onWebResourceError: (e) {
             _log("⚠️ WebResourceError: ${e.errorCode} ${e.description}");
-            if (!_loaderHidden) _hideLoaderOnce("resource error");
+
+            if (!_loaderHidden) {
+              _hideLoaderOnce("resource error");
+            }
           },
         ),
       );
 
     _hardStop = Timer(const Duration(seconds: 10), () {
-      if (!_loaderHidden) _hideLoaderOnce("hard stop 10s");
+      if (!_loaderHidden) {
+        _hideLoaderOnce("hard stop 10s");
+      }
     });
 
     _load();
@@ -1183,6 +1256,7 @@ $s
   Future<void> _load() async {
     try {
       final html = _ensureFullHtmlDoc(widget.widgetLoaderScriptHtml);
+
       await _controller.loadHtmlString(
         html,
         baseUrl: "https://widgetholder.uni247.xyz/",
@@ -1207,7 +1281,10 @@ $s
         backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close_rounded, color: Colors.white),
+          icon: const Icon(
+            Icons.close_rounded,
+            color: Colors.white,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -1232,7 +1309,10 @@ $s
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const BrandedLoader(brandName: 'Bettbit', size: 64),
+                  const BrandedLoader(
+                    brandName: 'Bettbit',
+                    size: 64,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Loading... $_progress%',

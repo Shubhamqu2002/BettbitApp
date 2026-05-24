@@ -3,15 +3,17 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/brand_service.dart';
 
-class DashboardHeader extends StatefulWidget implements PreferredSizeWidget {
+class DashboardHeader extends StatefulWidget
+    implements PreferredSizeWidget {
   final String? fullName;
-  final double? totalBalance; // kept for compatibility
-  final String? currency; // kept for compatibility
-  final VoidCallback onBalanceTap; // kept for compatibility
+  final double? totalBalance;
+  final String? currency;
+  final VoidCallback onBalanceTap;
   final VoidCallback onLogoutTap;
   final VoidCallback onMenuTap;
 
-  /// Platform / brand for UI: "ALL" or "TORROSPIN" or "MASCOT"
+  /// Platform / brand for UI:
+  /// "ALL" or "TORROSPIN" or "MASCOT" or "1GAMEHUB"
   final String selectedPlatform;
   final ValueChanged<String> onPlatformChanged;
 
@@ -44,10 +46,14 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     super.initState();
     _logoUrlFuture = _brandService.fetchLogoUrl();
 
-    // ✅ Make ALL default (only if parent didn't pass anything valid)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final p = widget.selectedPlatform.trim().toUpperCase();
-      if (p.isEmpty || (p != 'ALL' && p != 'TORROSPIN' && p != 'MASCOT')) {
+
+      if (p.isEmpty ||
+          (p != 'ALL' &&
+              p != 'TORROSPIN' &&
+              p != 'MASCOT' &&
+              p != '1GAMEHUB')) {
         widget.onPlatformChanged('ALL');
       }
     });
@@ -55,45 +61,56 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   String get _platformLabel {
     final p = widget.selectedPlatform.toUpperCase();
+
     if (p == 'MASCOT') return 'Mascot';
     if (p == 'TORROSPIN') return 'Torrospin';
+    if (p == '1GAMEHUB') return 'OneGameHub';
+
     return 'All';
   }
 
   IconData get _platformIcon {
     final p = widget.selectedPlatform.toUpperCase();
+
     if (p == 'MASCOT') return Icons.sports_esports_rounded;
     if (p == 'TORROSPIN') return Icons.casino_rounded;
-    return Icons.apps_rounded; // ✅ ALL icon
+    if (p == '1GAMEHUB') return Icons.videogame_asset_rounded;
+
+    return Icons.apps_rounded;
   }
 
   List<Color> get _platformGradient {
     final p = widget.selectedPlatform.toUpperCase();
+
     if (p == 'MASCOT') {
       return [const Color(0xFFFF6584), const Color(0xFFFF7B9C)];
     }
+
     if (p == 'TORROSPIN') {
       return [const Color(0xFF00C9A7), const Color(0xFF00D4FF)];
     }
-    // ✅ ALL gradient (neutral premium purple)
+
+    if (p == '1GAMEHUB') {
+      return [const Color(0xFFFFA726), const Color(0xFFFF7043)];
+    }
+
     return [const Color(0xFF7C3AED), const Color(0xFF22D3EE)];
   }
 
-  /// ✅ Slightly BIGGER logo (width + height increased)
   Widget _buildLogo(String? logoUrl) {
     return Container(
       padding: const EdgeInsets.only(left: 2, right: 6),
       alignment: Alignment.centerLeft,
       child: SizedBox(
-        height: 65, // ⬆️ increased
+        height: 65,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: FittedBox(
             fit: BoxFit.contain,
             alignment: Alignment.centerLeft,
             child: SizedBox(
-              width: 180, // ⬆️ increased
-              height: 65, // ⬆️ increased
+              width: 180,
+              height: 65,
               child: _LogoRenderer(logoUrl: logoUrl),
             ),
           ),
@@ -150,7 +167,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               child: FutureBuilder<String?>(
                 future: _logoUrlFuture,
                 builder: (context, snap) {
-                  final url = (snap.connectionState == ConnectionState.done &&
+                  final url = (snap.connectionState ==
+                              ConnectionState.done &&
                           snap.hasData &&
                           (snap.data ?? '').toString().trim().isNotEmpty)
                       ? snap.data
@@ -204,7 +222,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 ),
                 offset: const Offset(0, 44),
                 itemBuilder: (context) => [
-                  // ✅ NEW: ALL option
                   PopupMenuItem(
                     value: 'ALL',
                     padding: EdgeInsets.zero,
@@ -215,10 +232,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         Color(0xFF7C3AED),
                         Color(0xFF22D3EE),
                       ],
-                      selected: widget.selectedPlatform.toUpperCase() == 'ALL',
+                      selected:
+                          widget.selectedPlatform.toUpperCase() == 'ALL',
                     ),
                   ),
+
                   const PopupMenuDivider(height: 1),
+
                   PopupMenuItem(
                     value: 'TORROSPIN',
                     padding: EdgeInsets.zero,
@@ -230,10 +250,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         Color(0xFF00D4FF),
                       ],
                       selected:
-                          widget.selectedPlatform.toUpperCase() == 'TORROSPIN',
+                          widget.selectedPlatform.toUpperCase() ==
+                              'TORROSPIN',
                     ),
                   ),
+
                   const PopupMenuDivider(height: 1),
+
                   PopupMenuItem(
                     value: 'MASCOT',
                     padding: EdgeInsets.zero,
@@ -245,13 +268,35 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         Color(0xFFFF7B9C),
                       ],
                       selected:
-                          widget.selectedPlatform.toUpperCase() == 'MASCOT',
+                          widget.selectedPlatform.toUpperCase() ==
+                              'MASCOT',
+                    ),
+                  ),
+
+                  const PopupMenuDivider(height: 1),
+
+                  // ✅ NEW ONEGAMEHUB OPTION
+                  PopupMenuItem(
+                    value: '1GAMEHUB',
+                    padding: EdgeInsets.zero,
+                    child: _platformItem(
+                      icon: Icons.videogame_asset_rounded,
+                      label: 'OneGameHub',
+                      gradient: const [
+                        Color(0xFFFFA726),
+                        Color(0xFFFF7043),
+                      ],
+                      selected:
+                          widget.selectedPlatform.toUpperCase() ==
+                              '1GAMEHUB',
                     ),
                   ),
                 ],
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -303,7 +348,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     required bool selected,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 12,
+      ),
       child: Row(
         children: [
           Container(
@@ -312,7 +360,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               shape: BoxShape.circle,
               gradient: LinearGradient(colors: gradient),
             ),
-            child: Icon(icon, size: 18, color: Colors.white),
+            child: Icon(
+              icon,
+              size: 18,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -325,7 +377,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
             ),
           ),
           if (selected)
-            const Icon(Icons.check_rounded, size: 18, color: Colors.white),
+            const Icon(
+              Icons.check_rounded,
+              size: 18,
+              color: Colors.white,
+            ),
         ],
       ),
     );
@@ -355,7 +411,9 @@ class _LogoRenderer extends StatelessWidget {
         child: SizedBox(
           width: 22,
           height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+          ),
         ),
       ),
     );
